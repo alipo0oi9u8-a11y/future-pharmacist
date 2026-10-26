@@ -92,6 +92,13 @@ type GamificationSummary = {
   lastStudiedOn: string | null;
   badges: Array<{ slug: string; name: string; description: string; awardedAt: string }>;
 };
+type UserPreferences = {
+  theme: "dark" | "light";
+  reduceAnimations: boolean;
+  soundEnabled: boolean;
+  leaderboardOptIn: boolean;
+};
+type UserPreferencePatch = Partial<UserPreferences>;
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -178,11 +185,35 @@ const pageTitle: Record<PageKey, string> = {
 };
 const themeChangeEvent = "future-pharmacists-theme-change";
 const reduceAnimationsChangeEvent = "future-pharmacists-reduce-animations-change";
+const soundPreferenceChangeEvent = "future-pharmacists-sound-preference-change";
+const leaderboardPreferenceChangeEvent = "future-pharmacists-leaderboard-preference-change";
 const subscribeToNoChanges = () => () => {};
 const getLowPowerDeviceSnapshot = () => (navigator.hardwareConcurrency || 8) <= 4;
 const getServerLowPowerSnapshot = () => false;
 const getReduceAnimationsSnapshot = () => localStorage.getItem("future-pharmacists.reduce-animations.v1") === "true";
 const getServerReduceAnimationsSnapshot = () => false;
+const subscribeToPreferenceEvent = (eventName: string, callback: () => void) => {
+  window.addEventListener(eventName, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(eventName, callback);
+    window.removeEventListener("storage", callback);
+  };
+};
+const getSoundEnabledSnapshot = () => localStorage.getItem("future-pharmacists.sound-enabled.v1") === "true";
+const getServerSoundEnabledSnapshot = () => false;
+const subscribeToSoundEnabled = (callback: () => void) => subscribeToPreferenceEvent(soundPreferenceChangeEvent, callback);
+function setStoredSoundEnabled(enabled: boolean) {
+  localStorage.setItem("future-pharmacists.sound-enabled.v1", String(enabled));
+  window.dispatchEvent(new Event(soundPreferenceChangeEvent));
+}
+const getLeaderboardOptInSnapshot = () => localStorage.getItem("future-pharmacists.leaderboard-opt-in.v1") === "true";
+const getServerLeaderboardOptInSnapshot = () => false;
+const subscribeToLeaderboardOptIn = (callback: () => void) => subscribeToPreferenceEvent(leaderboardPreferenceChangeEvent, callback);
+function setStoredLeaderboardOptIn(enabled: boolean) {
+  localStorage.setItem("future-pharmacists.leaderboard-opt-in.v1", String(enabled));
+  window.dispatchEvent(new Event(leaderboardPreferenceChangeEvent));
+}
 const subscribeToReduceAnimations = (callback: () => void) => {
   window.addEventListener(reduceAnimationsChangeEvent, callback);
   window.addEventListener("storage", callback);
@@ -287,10 +318,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [quizMode, setQuizMode] = useState("standard");
   const [flashcardSide, setFlashcardSide] = useState(false);
   const [flashcardRating, setFlashcardRating] = useState("");
+  const soundEnabled = useSyncExternalStore(subscribeToSoundEnabled, getSoundEnabledSnapshot, getServerSoundEnabledSnapshot);
+  const leaderboardOptIn = useSyncExternalStore(subscribeToLeaderboardOptIn, getLeaderboardOptInSnapshot, getServerLeaderboardOptInSnapshot);
+  const [preferenceStatus, setPreferenceStatus] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [noticeCount, setNoticeCount] = useState(2);
-  const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
   const [toast, setToast] = useState("");
   const [dialog, setDialog] = useState<"note" | "invite" | "book" | "announcement" | "exam" | null>(null);
   const [activeBookId, setActiveBookId] = useState("");
@@ -375,6 +408,16 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         const gamificationData = await requestJson<GamificationSummary>("/api/gamification");
         if (cancelled) return;
         setGamification(gamificationData);
+        try {
+          const preferenceData = await requestJson<{ preferences: UserPreferences }>("/api/preferences");
+          if (cancelled) return;
+          applyUserPreferences(preferenceData.preferences);
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Could not load account preferences.", error);
+            openToast("Account preferences could not be loaded; this device's settings remain active.");
+          }
+        }
         if (authenticatedUser.role === "developer") {
           const desk = await requestJson<{
             pendingNotes: Array<{
@@ -525,6 +568,35 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
   function openToast(message: string) {
     setToast(message);
+  }
+  function applyUserPreferences(preferences: UserPreferences) {
+    setStoredTheme(preferences.theme);
+    setStoredReduceAnimations(preferences.reduceAnimations);
+    setStoredSoundEnabled(preferences.soundEnabled);
+    setStoredLeaderboardOptIn(preferences.leaderboardOptIn);
+    setPreferenceStatus("Preferences synced to your account.");
+  }
+  async function saveUserPreferences(patch: UserPreferencePatch) {
+    if (patch.theme !== undefined) setStoredTheme(patch.theme);
+    if (patch.reduceAnimations !== undefined) setStoredReduceAnimations(patch.reduceAnimations);
+    if (patch.soundEnabled !== undefined) setStoredSoundEnabled(patch.soundEnabled);
+    if (patch.leaderboardOptIn !== undefined) setStoredLeaderboardOptIn(patch.leaderboardOptIn);
+    if (!authenticatedUser || preview) {
+      setPreferenceStatus("Saved on this device only.");
+      return;
+    }
+    try {
+      await requestJson<{ preferences: UserPreferences }>("/api/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      setPreferenceStatus("Preferences synced to your account.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Preference sync failed.";
+      setPreferenceStatus("Saved on this device; account sync failed.");
+      openToast(message);
+    }
   }
   async function refreshGamification() {
     try {
@@ -1005,7 +1077,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
 
   function updateReduceAnimations(enabled: boolean) {
-    setStoredReduceAnimations(enabled);
+    void saveUserPreferences({ reduceAnimations: enabled });
+  }
+  function updateLeaderboardOptIn(enabled: boolean) {
+    void saveUserPreferences({ leaderboardOptIn: enabled });
   }
 
   const pageVariants: Variants = !motionEnabled ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
@@ -1114,13 +1189,37 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
               <button className="button-quiet" type="button" aria-label={`${noticeCount} sample notifications`} title="Sample notifications" onClick={() => { setNoticeCount(0); openToast("No new sample notifications."); }}>♧{noticeCount > 0 ? ` ${noticeCount}` : ""}</button>
               <button className="button-quiet" type="button" aria-label="Open search" onClick={() => setCommandOpen(true)}>⌕ <kbd>Ctrl K</kbd></button>
               <MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} />
-              <button className="button-quiet" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setStoredTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☼" : "☾"}</button>
+              <button className="button-quiet" type="button" aria-pressed={soundEnabled} aria-label={`Sound effects ${soundEnabled ? "on" : "off"}`} title={`Sound effects ${soundEnabled ? "on" : "off"}`} onClick={() => void saveUserPreferences({ soundEnabled: !soundEnabled })}>♪</button>
+              <button className="button-quiet" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => void saveUserPreferences({ theme: theme === "dark" ? "light" : "dark" })}>{theme === "dark" ? "☼" : "☾"}</button>
             </div>
           </header>
           <main id="main-content" className="content">
             <AnimatePresence mode="wait">
               <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={motionEnabled ? { opacity: 0, y: -5, transition: { duration: .15 } } : undefined}>
-                {page === "dashboard" && <Dashboard preview={preview} gamification={preview ? previewGamification : gamification} notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
+                {page === "dashboard" && <Dashboard
+                  preview={preview}
+                  gamification={preview ? previewGamification : gamification}
+                  notes={approvedNotes}
+                  pendingCount={pendingNotes.length}
+                  books={books}
+                  announcements={announcements}
+                  examDates={examDates}
+                  showDeveloperTools={preview || authenticatedUser?.role === "developer"}
+                  onNavigate={go}
+                  itemVariants={itemVariants}
+                  loading={dataLoading}
+                  motionEnabled={motionEnabled}
+                  pageVisible={pageVisible}
+                  theme={theme}
+                  onTheme={(value) => void saveUserPreferences({ theme: value })}
+                  reduceAnimations={reduceAnimations}
+                  onReduceAnimations={updateReduceAnimations}
+                  soundEnabled={soundEnabled}
+                  onSoundEnabled={(value) => void saveUserPreferences({ soundEnabled: value })}
+                  leaderboardOptIn={leaderboardOptIn}
+                  onLeaderboard={updateLeaderboardOptIn}
+                  preferenceStatus={preferenceStatus}
+                />}
                 {page === "notes" && <NotesPage
                   notes={filteredNotes()}
                   query={query}
@@ -1187,7 +1286,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   reduceAnimations={reduceAnimations}
                   onReduceAnimations={updateReduceAnimations}
                   leaderboardOptIn={leaderboardOptIn}
-                  onLeaderboard={setLeaderboardOptIn}
+                  onLeaderboard={updateLeaderboardOptIn}
+                  soundEnabled={soundEnabled}
+                  onSoundEnabled={(value) => void saveUserPreferences({ soundEnabled: value })}
                   itemVariants={itemVariants}
                 />}
               </motion.section>
@@ -1269,12 +1370,16 @@ function SectionHeading({ title, detail, action }: { title: string; detail?: str
   return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
-function Dashboard({ preview, gamification, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
+function Dashboard({ preview, gamification, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible, theme, onTheme, reduceAnimations, onReduceAnimations, soundEnabled, onSoundEnabled, leaderboardOptIn, onLeaderboard, preferenceStatus }: {
   preview: boolean;
   gamification: GamificationSummary | null;
   notes: Note[]; pendingCount: number; books: Book[]; announcements: CourseAnnouncement[]; examDates: CourseExam[];
   showDeveloperTools: boolean; onNavigate: (page: PageKey) => void; itemVariants: Variants;
   loading: boolean; motionEnabled: boolean; pageVisible: boolean;
+  theme: "dark" | "light"; onTheme: (value: "dark" | "light") => void;
+  reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void;
+  soundEnabled: boolean; onSoundEnabled: (value: boolean) => void;
+  leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; preferenceStatus: string;
 }) {
   const recent = notes.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3);
   const nextExam = examDates[0];
@@ -1325,6 +1430,14 @@ function Dashboard({ preview, gamification, notes, pendingCount, books, announce
         <div className="list-row"><span className="list-icon">✓</span><div><strong>Approval before publication</strong><small>Contribution permission never grants publish permission.</small></div></div>
       </section>}
     </div>
+    <SectionHeading title="Your preferences" detail={preview ? "Preview settings are stored on this device only." : "These settings sync to your account across devices."} />
+    <section className="panel" aria-label="Account preferences">
+      <div className="settings-row"><label htmlFor="account-theme">Theme</label><button id="account-theme" className="button-quiet" type="button" onClick={() => onTheme(theme === "dark" ? "light" : "dark")}>Switch to {theme === "dark" ? "light" : "dark"} theme</button></div>
+      <div className="settings-row"><label htmlFor="account-reduce-motion">Reduce animations</label><input id="account-reduce-motion" type="checkbox" checked={reduceAnimations} onChange={(event) => onReduceAnimations(event.target.checked)} /></div>
+      <div className="settings-row"><label htmlFor="account-sound">Sound effects (off by default)</label><input id="account-sound" type="checkbox" checked={soundEnabled} onChange={(event) => onSoundEnabled(event.target.checked)} /></div>
+      <div className="settings-row"><label htmlFor="account-leaderboard">Opt in to the display-name-only weekly leaderboard</label><input id="account-leaderboard" type="checkbox" checked={leaderboardOptIn} onChange={(event) => onLeaderboard(event.target.checked)} /></div>
+      <p className="preference-status" role="status" aria-live="polite">{preferenceStatus}</p>
+    </section>
     <p className="login-footer" style={{ marginTop: "1.4rem", textAlign: "center" }}>Visual demo content is illustrative; verify your actual course list and textbook requirements with faculty.</p>
   </motion.div>;
 }
@@ -1533,8 +1646,8 @@ function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { cl
   );
 }
 
-function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, itemVariants }: {
-  preview: boolean; pendingNotes: Note[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; itemVariants: Variants;
+function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
+  preview: boolean; pendingNotes: Note[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; soundEnabled: boolean; onSoundEnabled: (value: boolean) => void; itemVariants: Variants;
 }) {
   return <motion.div variants={itemVariants}>
     <PageHeading eyebrow="Owner controls" title="Developer desk" description="Manage invitations, submission permissions, review queue, books, and course announcements." action={<button className="button-primary" type="button" onClick={onInvite}>＋ Invite a member</button>} />
@@ -1559,15 +1672,16 @@ function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, on
     <div className="management-actions"><button className="button-secondary" type="button" onClick={onAnnouncement}>＋ Announcement</button><button className="button-secondary" type="button" onClick={onExam}>＋ Exam / deadline</button></div>
     <SectionHeading title="Book catalog" detail="Add verified local prices, dates, purchase links, and covers." />
     <div className="management-list">{books.map((book) => <div className="management-card" key={book.id}><div><strong>{book.subject}: {book.title}</strong><small>{book.price && book.currency ? `${book.currency} ${book.price}` : "Price not provided"} · Edition: {book.edition}</small></div><button className="button-secondary" type="button" onClick={() => onEditBook(book.id)}>Edit</button></div>)}</div>
-    <SectionHeading title="Study settings" detail={preview ? "Preferences remain local to this temporary preview." : "These preferences are stored in this browser, not synced across devices."} />
+    <SectionHeading title="Study settings" detail={preview ? "Preferences remain local to this temporary preview." : "Account preferences sync across devices."} />
     <div className="panel">
       <div className="settings-row"><label htmlFor="reduce-motion">Reduce animations</label><input id="reduce-motion" type="checkbox" checked={reduceAnimations} onChange={(event) => onReduceAnimations(event.target.checked)} /></div>
+      <div className="settings-row"><label htmlFor="desk-sound">Sound effects (off by default)</label><input id="desk-sound" type="checkbox" checked={soundEnabled} onChange={(event) => onSoundEnabled(event.target.checked)} /></div>
       <div className="settings-row"><label htmlFor="leaderboard">Opt in to a display-name-only leaderboard</label><input id="leaderboard" type="checkbox" checked={leaderboardOptIn} onChange={(event) => onLeaderboard(event.target.checked)} /></div>
       <div className="settings-row"><span>Animation setting shortcut</span><button className="button-quiet" type="button" onClick={onSettings}>Toggle reduced motion</button></div>
     </div>
     <SectionHeading title="Audit activity" detail={preview ? "This demo log is volatile and is not an authoritative audit record." : "Sensitive changes are recorded by Supabase; this list reflects the latest loaded records."} />
     <div className="management-list">{auditEntries.slice(0, 8).map((entry, index) => <div className="management-card" key={`${entry}-${index}`}><strong>{entry}</strong><small>{preview ? "Preview memory · not an authoritative audit record" : "Database audit record"}</small></div>)}</div>
-    <p className="login-footer" style={{ marginTop: "1.3rem" }}>Leaderboard, notifications, and cross-device study settings still need database-backed integration before they are live features.</p>
+    <p className="login-footer" style={{ marginTop: "1.3rem" }}>Leaderboard rankings and notifications are not implemented yet; the opt-in preference is saved for the future leaderboard.</p>
   </motion.div>;
 }
 

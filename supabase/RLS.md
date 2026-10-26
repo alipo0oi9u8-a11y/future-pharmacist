@@ -24,6 +24,7 @@ RLS is enabled on every application table by the initial migration. The security
 | `user_progress` | Users read only their own progress. Trusted quiz-answer and flashcard-review triggers award XP and update streaks through a private function; no authenticated write grant is given. |
 | `badges` / `user_badges` | Active users read active definitions; users read only their own awards. No client write grant is given. |
 | `first-quiz` / `seven-day-streak` badges | The database awards these after a non-empty quiz attempt is completed or a user's daily streak reaches seven; clients cannot grant badges. |
+| `user_preferences` | Active users read only their own row. Direct writes are revoked; the `save_user_preferences` RPC validates allowed values and always derives the owner from `auth.uid()`. |
 | `announcements` | Active users read published announcements; only the developer can manage them. |
 | `exam_dates` | Active users can read exam dates; only the developer can manage them. |
 | `audit_events` | Only the developer can read audit events. Server-only guarded functions and review triggers write them. |

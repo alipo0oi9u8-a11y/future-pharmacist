@@ -376,6 +376,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .study-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
 .badge-list { display: flex; flex-wrap: wrap; gap: .4rem; }
 .empty-inline { color: var(--color-muted); font-size: .65rem; }
+.preference-status { min-height: 1rem; margin: .5rem 0 0; color: var(--color-muted); font-size: .58rem; }
 
 .management-list { display: grid; gap: .55rem; }
 .dashboard-skeleton { display: grid; gap: .8rem; }
