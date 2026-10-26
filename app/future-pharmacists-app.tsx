@@ -110,6 +110,11 @@ type NotificationItem = {
   isRead: boolean;
 };
 type LeaderboardEntry = { displayName: string; weeklyXp: number; rank: number };
+type DeveloperAnalytics = {
+  activeUsers: number;
+  popularSubjects: Array<{ subject: string; helpfulReactions: number }>;
+  pendingQueueAgeMinutes: number;
+};
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -189,6 +194,11 @@ const previewLeaderboard: LeaderboardEntry[] = [
   { displayName: "Sample learner", weeklyXp: 75, rank: 1 },
   { displayName: "Sample classmate", weeklyXp: 42, rank: 2 },
 ];
+const previewDeveloperAnalytics: DeveloperAnalytics = {
+  activeUsers: 12,
+  popularSubjects: [{ subject: "Biochemistry", helpfulReactions: 8 }, { subject: "Physiology", helpfulReactions: 5 }],
+  pendingQueueAgeMinutes: 35,
+};
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
   { key: "notes", label: "Notes library", icon: "▤" },
@@ -303,6 +313,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [introReady, setIntroReady] = useState(false);
   const [notes, setNotes] = useState<Note[]>(authenticatedUser ? [] : initialNotes);
   const [members, setMembers] = useState<Member[]>(authenticatedUser ? [] : initialMembers);
+  const [developerAnalytics, setDeveloperAnalytics] = useState<DeveloperAnalytics | null>(null);
   const [books, setBooks] = useState<Book[]>(authenticatedUser ? [] : initialBooks);
   const [catalogSubjects, setCatalogSubjects] = useState<CatalogSubject[]>([]);
   const [dataLoading, setDataLoading] = useState(Boolean(authenticatedUser));
@@ -474,6 +485,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             }>;
             audit: Array<{ action: string; entity_type: string; entity_id: string | null; created_at: string }>;
             reports: NoteReport[];
+            analytics: DeveloperAnalytics;
           }>("/api/developer/desk");
           if (cancelled) return;
           const pending = desk.pendingNotes.map((note): Note => ({
@@ -499,6 +511,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           })));
           setAuditEntries(desk.audit.map((entry) => `${entry.action} · ${entry.entity_type} ${entry.entity_id ?? ""} · ${entry.created_at}`));
           setNoteReports(desk.reports);
+          setDeveloperAnalytics(desk.analytics);
         }
       } catch (error) {
         if (!cancelled) openToast(error instanceof Error ? error.message : "Study data could not be loaded.");
@@ -776,6 +789,30 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     openToast(preview
       ? status === "approved" ? "Preview note approved and published in this demo." : "Preview note rejected in this demo."
       : status === "approved" ? "Note approved and published." : "Note rejected with the reason recorded.");
+  }
+  async function bulkReviewNotes(ids: string[], status: Exclude<NoteStatus, "pending">, reason: string): Promise<boolean> {
+    if (!preview && authenticatedUser?.role !== "developer") {
+      openToast("Developer permission required.");
+      return false;
+    }
+    if (!preview) {
+      try {
+        await requestJson<{ reviewedCount: number; status: string }>("/api/developer/notes/review/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ noteIds: ids, status, ...(status === "rejected" ? { reason } : {}) }),
+        });
+      } catch (error) {
+        openToast(error instanceof Error ? error.message : "Bulk review failed.");
+        return false;
+      }
+    }
+    setNotes((items) => items.map((note) => ids.includes(note.id)
+      ? { ...note, status, newThisWeek: status === "approved" ? true : note.newThisWeek }
+      : note));
+    if (preview) setAuditEntries((entries) => [`${status} ${ids.length} sample notes in preview`, ...entries]);
+    openToast(preview ? `${ids.length} sample notes updated in preview.` : `${ids.length} notes ${status}.`);
+    return true;
   }
   async function submitNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1375,10 +1412,13 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   preview={preview}
                   pendingNotes={pendingNotes}
                   reports={noteReports}
+                  analytics={preview ? previewDeveloperAnalytics : developerAnalytics}
                   members={members}
                   books={books}
                   auditEntries={auditEntries}
                   onReview={updateNoteStatus}
+                  onBulkReview={bulkReviewNotes}
+                  onToast={openToast}
                   onPermission={changePermission}
                   onInvite={() => { setModalError(""); setDialog("invite"); }}
                   onEditBook={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }}
@@ -1758,14 +1798,46 @@ function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { cl
   );
 }
 
-function DeveloperDesk({ preview, pendingNotes, reports, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
-  preview: boolean; pendingNotes: Note[]; reports: NoteReport[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; soundEnabled: boolean; onSoundEnabled: (value: boolean) => void; itemVariants: Variants;
+function DeveloperDesk({ preview, pendingNotes, reports, analytics, members, books, auditEntries, onReview, onBulkReview, onToast, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
+  preview: boolean; pendingNotes: Note[]; reports: NoteReport[]; analytics: DeveloperAnalytics | null; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onBulkReview: (ids: string[], status: Exclude<NoteStatus, "pending">, reason: string) => Promise<boolean>; onToast: (message: string) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; soundEnabled: boolean; onSoundEnabled: (value: boolean) => void; itemVariants: Variants;
 }) {
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
+  const [auditSearch, setAuditSearch] = useState("");
+  const allPendingSelected = pendingNotes.length > 0 && pendingNotes.every((note) => selectedNoteIds.includes(note.id));
+  const visibleAuditEntries = auditEntries.filter((entry) => entry.toLowerCase().includes(auditSearch.trim().toLowerCase()));
+  function togglePendingNote(id: string, checked: boolean) {
+    setSelectedNoteIds((ids) => checked ? [...new Set([...ids, id])] : ids.filter((selectedId) => selectedId !== id));
+  }
+  async function reviewSelected(status: Exclude<NoteStatus, "pending">) {
+    const currentSelection = selectedNoteIds.filter((id) => pendingNotes.some((note) => note.id === id));
+    if (!currentSelection.length) return;
+    let reason = "";
+    if (status === "rejected") {
+      const answer = window.prompt("Enter one reason for rejecting the selected notes.");
+      if (answer === null) return;
+      reason = answer.trim();
+      if (!reason || reason.length > 1000) return onToast("A rejection reason of 1–1,000 characters is required.");
+    }
+    if (await onBulkReview(currentSelection, status, reason)) setSelectedNoteIds([]);
+  }
+  const pendingAge = analytics
+    ? analytics.pendingQueueAgeMinutes < 60
+      ? `${analytics.pendingQueueAgeMinutes} min`
+      : `${Math.floor(analytics.pendingQueueAgeMinutes / 60)} hr ${analytics.pendingQueueAgeMinutes % 60} min`
+    : "Not available";
   return <motion.div variants={itemVariants}>
     <PageHeading eyebrow="Owner controls" title="Developer desk" description="Manage invitations, submission permissions, review queue, books, and course announcements." action={<button className="button-primary" type="button" onClick={onInvite}>＋ Invite a member</button>} />
     <div className="notice"><strong>{preview ? "Visual preview only." : "Protected management area."}</strong> {preview ? "These controls change temporary sample data only; no invitations or database updates are made." : "Management actions use authenticated server routes and Supabase policies. Production security still depends on configuring Supabase and passing the RLS test suite."}</div>
     <SectionHeading title="Pending note review" detail="Pending notes stay hidden from the shared library." />
+    <div className="bulk-review-toolbar">
+      <label><input type="checkbox" checked={allPendingSelected} onChange={(event) => setSelectedNoteIds(event.target.checked ? pendingNotes.map((note) => note.id) : [])} /> Select all {pendingNotes.length} pending notes</label>
+      <div className="management-actions">
+        <button className="button-primary" type="button" disabled={!selectedNoteIds.length} onClick={() => void reviewSelected("approved")}>Approve selected</button>
+        <button className="button-danger" type="button" disabled={!selectedNoteIds.length} onClick={() => void reviewSelected("rejected")}>Reject selected</button>
+      </div>
+    </div>
     <div className="management-list">{pendingNotes.length ? pendingNotes.map((note) => <motion.article className="management-card" key={note.id} variants={itemVariants}>
+      <label className="pending-note-select"><input type="checkbox" checked={selectedNoteIds.includes(note.id)} onChange={(event) => togglePendingNote(note.id, event.target.checked)} /><span className="visually-hidden">Select {note.topic} for bulk review</span></label>
       <div><strong>{note.topic}</strong><small>{note.subject} · {note.book} · {note.chapter}<br />Submitted by {note.submittedBy} · {note.createdAt}</small></div>
       <div className="management-actions"><button className="button-primary" type="button" onClick={() => onReview(note.id, "approved")}>Approve</button><button className="button-danger" type="button" onClick={() => onReview(note.id, "rejected")}>Reject</button></div>
     </motion.article>) : <EmptyState>No notes are waiting for review.</EmptyState>}</div>
@@ -1774,6 +1846,12 @@ function DeveloperDesk({ preview, pendingNotes, reports, members, books, auditEn
       <div><strong>Note {report.note_id.slice(0, 8)} · link report</strong><small>{report.reason}<br />Received {new Date(report.created_at).toLocaleString()}</small></div>
       <span className="chip">{report.status}</span>
     </article>) : <EmptyState>No broken-link reports are waiting for review.</EmptyState>}</div>
+    <SectionHeading title="Workspace analytics" detail={preview ? "Illustrative sample values · preview only." : "Active accounts, helpful-note reactions by subject, and oldest pending-note age."} />
+    <div className="analytics-grid">
+      <div className="stat-card"><span className="stat-icon" aria-hidden="true">◎</span><div><strong>{analytics?.activeUsers ?? "—"}{preview ? " · sample" : ""}</strong><small>Active users{preview ? " · preview" : ""}</small></div></div>
+      <div className="stat-card"><span className="stat-icon" aria-hidden="true">◷</span><div><strong>{pendingAge}{preview ? " · sample" : ""}</strong><small>Oldest pending item{preview ? " · preview" : ""}</small></div></div>
+      <section className="panel"><h2>Popular subjects</h2>{analytics?.popularSubjects.length ? analytics.popularSubjects.map((subject) => <div className="list-row" key={subject.subject}><div><strong>{subject.subject}{preview ? " · sample" : ""}</strong><small>{subject.helpfulReactions}{preview ? " sample" : ""} helpful reactions</small></div></div>) : <EmptyState>No helpful reactions yet.</EmptyState>}</section>
+    </div>
     <SectionHeading title="Members & contribution access" detail="Only the developer grants submission permission. Submission never grants publish access." action={<button className="button-secondary" type="button" onClick={onInvite}>Invite a member</button>} />
     <div className="management-list">{members.map((member) => <div className="management-card" key={member.id}>
       <div className="person-row"><span className="avatar">{initials(member.name)}</span><div><strong>{member.name}</strong><small>{member.email} · {member.role} · {member.status}</small></div></div>
@@ -1796,9 +1874,10 @@ function DeveloperDesk({ preview, pendingNotes, reports, members, books, auditEn
       <div className="settings-row"><label htmlFor="leaderboard">Opt in to a display-name-only leaderboard</label><input id="leaderboard" type="checkbox" checked={leaderboardOptIn} onChange={(event) => onLeaderboard(event.target.checked)} /></div>
       <div className="settings-row"><span>Animation setting shortcut</span><button className="button-quiet" type="button" onClick={onSettings}>Toggle reduced motion</button></div>
     </div>
-    <SectionHeading title="Audit activity" detail={preview ? "This demo log is volatile and is not an authoritative audit record." : "Sensitive changes are recorded by Supabase; this list reflects the latest loaded records."} />
-    <div className="management-list">{auditEntries.slice(0, 8).map((entry, index) => <div className="management-card" key={`${entry}-${index}`}><strong>{entry}</strong><small>{preview ? "Preview memory · not an authoritative audit record" : "Database audit record"}</small></div>)}</div>
-    <p className="login-footer" style={{ marginTop: "1.3rem" }}>Leaderboard rankings and notifications are not implemented yet; the opt-in preference is saved for the future leaderboard.</p>
+    <SectionHeading title="Audit activity" detail={preview ? "This demo log is volatile and is not an authoritative audit record." : "Search the latest 30 database audit records."} />
+    <label className="search-control audit-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search audit log" placeholder="Search action, entity, or timestamp…" value={auditSearch} onChange={(event) => setAuditSearch(event.target.value)} /></label>
+    <div className="management-list">{visibleAuditEntries.map((entry, index) => <div className="management-card" key={`${entry}-${index}`}><strong>{entry}</strong><small>{preview ? "Preview memory · not an authoritative audit record" : "Database audit record"}</small></div>)}{!visibleAuditEntries.length && <EmptyState>No audit entries match this search.</EmptyState>}</div>
+    <p className="login-footer" style={{ marginTop: "1.3rem" }}>Analytics counts active profiles and helpful reactions; leaderboard participation remains opt-in.</p>
   </motion.div>;
 }
 

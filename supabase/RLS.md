@@ -32,6 +32,8 @@ RLS is enabled on every application table by the initial migration. The security
 | `exam_dates` | Active users can read exam dates; only the developer can manage them. |
 | `audit_events` | Only the developer can read audit events. Server-only guarded functions and review triggers write them. |
 
+The developer-only `review_notes_bulk` RPC validates a unique batch of 1–50 pending note IDs and applies all decisions atomically through the existing audited note-review function. The `developer_analytics` RPC verifies the active developer role and returns active-account counts, helpful reactions grouped by subject, and the oldest pending-note age; it does not return member emails.
+
 Security-definer functions use a fixed `search_path`. Service-only RPCs verify `auth.role() = 'service_role'` and the supplied active developer actor. Public signup is disabled in Supabase Auth configuration; new users are created by developer-checked invitation routes. A contributor permission only authorizes pending submission and never publication.
 
 Run `npx supabase test db` after any policy/schema change. A passing local test suite does not replace production project configuration review.
