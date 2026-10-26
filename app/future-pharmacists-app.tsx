@@ -959,7 +959,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           <main id="main-content" className="content">
             <AnimatePresence mode="wait">
               <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={motionEnabled ? { opacity: 0, y: -5, transition: { duration: .15 } } : undefined}>
-                {page === "dashboard" && <Dashboard notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
+                {page === "dashboard" && <Dashboard preview={preview} notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
                 {page === "notes" && <NotesPage
                   notes={filteredNotes()}
                   query={query}
@@ -982,6 +982,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   onPreview={() => openToast("Preview note: add and approve a real Google Docs link after Supabase is configured.")}
                   itemVariants={itemVariants}
                   motionEnabled={motionEnabled}
+                  preview={preview}
                 />}
                 {page === "quiz" && <QuizPage
                   question={currentQuestion}
@@ -1102,7 +1103,8 @@ function SectionHeading({ title, detail, action }: { title: string; detail?: str
   return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
-function Dashboard({ notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
+function Dashboard({ preview, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
+  preview: boolean;
   notes: Note[]; pendingCount: number; books: Book[]; announcements: CourseAnnouncement[]; examDates: CourseExam[];
   showDeveloperTools: boolean; onNavigate: (page: PageKey) => void; itemVariants: Variants;
   loading: boolean; motionEnabled: boolean; pageVisible: boolean;
@@ -1116,9 +1118,9 @@ function Dashboard({ notes, pendingCount, books, announcements, examDates, showD
       <Image className="hero-logo" src={logoPath} width={155} height={155} alt="Future Pharmacists supplied logo" />
     </section>
     <div className="stats-grid">
-      <StatCard icon="▤" value={String(notes.length)} label="Approved notes" motionEnabled={motionEnabled} pageVisible={pageVisible} />
-      <StatCard icon="✳" value={String(subjects.length)} label="Semester subjects" motionEnabled={motionEnabled} pageVisible={pageVisible} />
-      <StatCard icon="▣" value={String(books.length)} label="Book resources" motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="▤" value={String(notes.length)} label={`Approved notes${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="✳" value={String(subjects.length)} label={`Subject areas${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="▣" value={String(books.length)} label={`Book resources${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
       <StatCard icon="◷" value="0 days" label="Study streak · preview" motionEnabled={motionEnabled} pageVisible={pageVisible} />
     </div>
     <SectionHeading title="Your five subjects" detail="Subject accents are inspired by the books in your logo." action={<button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Browse all →</button>} />
@@ -1127,7 +1129,7 @@ function Dashboard({ notes, pendingCount, books, announcements, examDates, showD
         const count = notes.filter((note) => note.status === "approved" && note.subject === subject.name).length;
         const progress = [36, 22, 48, 61, 18][index];
         return <motion.button key={subject.name} className="subject-card" variants={itemVariants} whileHover={motionEnabled ? { y: -5, rotateX: 1.5, rotateY: -1.5 } : undefined} type="button" style={{ "--accent": subject.color } as CSSProperties} onClick={() => onNavigate("notes")}>
-          <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes · sample progress {progress}%</small>
+          <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes{preview ? " · sample" : ""} · sample progress {progress}%</small>
         </motion.button>;
       })}
     </div>
@@ -1149,7 +1151,7 @@ function Dashboard({ notes, pendingCount, books, announcements, examDates, showD
       <section className="panel"><div className="panel-header"><div><h2>Announcements</h2><p>Developer-published course updates.</p></div></div>
         {announcements.slice(0, 3).length ? announcements.slice(0, 3).map((announcement) => <div className="list-row" key={announcement.id}><span className="list-icon">i</span><div><strong>{announcement.title}</strong><small>{announcement.body}</small></div></div>) : <EmptyState>No announcements yet.</EmptyState>}
       </section>
-      {showDeveloperTools && <section className="panel"><div className="panel-header"><div><h2>Developer review queue</h2><p>Pending notes stay hidden from ordinary users.</p></div><span className="chip">{pendingCount} pending</span></div>
+      {showDeveloperTools && <section className="panel"><div className="panel-header"><div><h2>Developer review queue</h2><p>Pending notes stay hidden from ordinary users.</p></div><span className="chip">{pendingCount} pending{preview ? " · sample" : ""}</span></div>
         <div className="list-row"><span className="list-icon">✓</span><div><strong>Approval before publication</strong><small>Contribution permission never grants publish permission.</small></div></div>
       </section>}
     </div>
@@ -1198,9 +1200,9 @@ function AnimatedCounter({ value, motionEnabled, pageVisible }: { value: string;
   return numericValue === null ? <>{value}</> : <motion.span aria-label={value}>{display}</motion.span>;
 }
 
-function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, savedNotes, helpfulNotes, reportedNotes, books, canSubmit, onQuery, onSubject, onBook, onChapter, onSave, onHelpful, onReport, onOpenSubmit, onPreview, itemVariants, motionEnabled }: {
+function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, savedNotes, helpfulNotes, reportedNotes, books, canSubmit, onQuery, onSubject, onBook, onChapter, onSave, onHelpful, onReport, onOpenSubmit, onPreview, itemVariants, motionEnabled, preview }: {
   notes: Note[]; query: string; subjectFilter: string; bookFilter: string; chapterFilter: string; savedNotes: string[]; helpfulNotes: string[]; reportedNotes: string[]; books: Book[];
-  canSubmit: boolean; onQuery: (value: string) => void; onSubject: (value: string) => void; onBook: (value: string) => void; onChapter: (value: string) => void; onSave: (id: string) => void; onHelpful: (id: string) => void; onReport: (id: string) => void; onOpenSubmit: () => void; onPreview: () => void; itemVariants: Variants; motionEnabled: boolean;
+  canSubmit: boolean; onQuery: (value: string) => void; onSubject: (value: string) => void; onBook: (value: string) => void; onChapter: (value: string) => void; onSave: (id: string) => void; onHelpful: (id: string) => void; onReport: (id: string) => void; onOpenSubmit: () => void; onPreview: () => void; itemVariants: Variants; motionEnabled: boolean; preview: boolean;
 }) {
   const bookOptions = [...new Set(books.map((book) => book.title))];
   const chapters = [...new Set(notes.map((note) => note.chapter))];
@@ -1213,7 +1215,7 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
       <select aria-label="Filter by book" value={bookFilter} onChange={(event) => onBook(event.target.value)}><option>All books</option>{bookOptions.map((book) => <option key={book}>{book}</option>)}</select>
       <select aria-label="Filter by chapter" value={chapterFilter} onChange={(event) => onChapter(event.target.value)}><option>All chapters</option>{chapters.map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
     </div>
-    <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}</h2><span className="chip">New this week · preview</span></div>
+    <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}{preview ? " · sample" : ""}</h2><span className="chip">New this week · preview</span></div>
     <div className="card-grid">{notes.length ? notes.map((note) => <motion.article className="note-card" key={note.id} variants={itemVariants} whileHover={motionEnabled ? { y: -4, rotateX: 1.5, rotateY: -1.5 } : undefined} style={{ "--card-accent": subjectColor(note.subject) } as CSSProperties}>
       <div className="card-meta"><span className="chip" style={{ color: subjectColor(note.subject) }}>{note.subject}</span><span className="chip">Approved</span></div>
       <h3>{note.topic}</h3><p>{note.book}<br />{note.chapter}</p>
@@ -1221,7 +1223,7 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
         {note.docsUrl ? isGoogleDocsUrl(note.docsUrl) ? <a className="button-quiet" href={note.docsUrl} target="_blank" rel="noopener noreferrer">Open Doc ↗</a> : <button type="button" onClick={onPreview}>Link unavailable</button> : <button type="button" onClick={onPreview}>Preview note</button>}
         <button type="button" aria-pressed={savedNotes.includes(note.id)} aria-label={savedNotes.includes(note.id) ? "Remove bookmark" : "Bookmark note"} onClick={() => onSave(note.id)}>{savedNotes.includes(note.id) ? "★" : "☆"}</button>
       </div></div>
-      <div className="note-actions" style={{ marginTop: ".55rem" }}><button type="button" aria-pressed={helpfulNotes.includes(note.id)} onClick={() => onHelpful(note.id)}>Helpful · {note.helpful}</button><button type="button" aria-pressed={reportedNotes.includes(note.id)} onClick={() => onReport(note.id)}>Report link</button></div>
+      <div className="note-actions" style={{ marginTop: ".55rem" }}><button type="button" aria-pressed={helpfulNotes.includes(note.id)} onClick={() => onHelpful(note.id)}>Helpful · {note.helpful}{preview ? " · sample" : ""}</button><button type="button" aria-pressed={reportedNotes.includes(note.id)} onClick={() => onReport(note.id)}>Report link</button></div>
     </motion.article>) : <EmptyState>No approved notes match these filters.</EmptyState>}</div>
   </motion.div>;
 }
