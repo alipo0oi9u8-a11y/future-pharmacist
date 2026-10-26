@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
 import type { Variants } from "motion/react";
 import type { AppRole } from "@/lib/supabase/types";
 
@@ -194,7 +194,11 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [catalogSubjects, setCatalogSubjects] = useState<CatalogSubject[]>([]);
   const [dataLoading, setDataLoading] = useState(Boolean(authenticatedUser));
   const [loginError, setLoginError] = useState("");
+  const [loginShake, setLoginShake] = useState(false);
   const [loginPending, setLoginPending] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
+  const [loginFlight, setLoginFlight] = useState<{ top: number; left: number; width: number; height: number; x: number; y: number; scale: number } | null>(null);
+  const loginLogoRef = useRef<HTMLImageElement>(null);
   const [pageVisible, setPageVisible] = useState(true);
   const [query, setQuery] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All subjects");
@@ -352,6 +356,19 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     };
   }, [reduceMotion]);
 
+  useEffect(() => {
+    const authState = new URLSearchParams(window.location.search).get("auth");
+    if (!authState) return;
+    const message = authState === "callback_error"
+      ? "Your sign-in link may have expired or could not be verified. Ask the developer for a fresh invitation."
+      : authState === "not_invited"
+        ? "This invitation is no longer active. Ask the developer to send a new one."
+        : authState === "missing_code"
+          ? "The invitation link is incomplete. Ask the developer to send a new one."
+          : "";
+    if (message) window.setTimeout(() => displayLoginError(message), 0);
+  }, []);
+
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
   useEffect(() => {
@@ -397,6 +414,13 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const sampleQuestionActive = !authenticatedUser || liveQuestions.length === 0;
   const motionEnabled = !reduceMotion && !reduceAnimations;
 
+  function displayLoginError(message: string) {
+    setLoginError(message);
+    setLoginShake(false);
+    window.requestAnimationFrame(() => setLoginShake(true));
+    window.setTimeout(() => setLoginShake(false), 320);
+  }
+
   function finishIntro() {
     setIntro(false);
     setIntroReady(true);
@@ -426,9 +450,32 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
       });
-      router.push(result.next);
+      setLoginPending(false);
+      setLoginSuccess(true);
+      const logo = loginLogoRef.current;
+      if (motionEnabled && logo) {
+        const source = logo.getBoundingClientRect();
+        const mobile = window.matchMedia("(max-width: 760px)").matches;
+        const target = {
+          top: mobile ? 12 : 20,
+          left: mobile ? 15 : 21,
+          width: mobile ? 32 : 45,
+        };
+        setLoginFlight({
+          top: source.top,
+          left: source.left,
+          width: source.width,
+          height: source.height,
+          x: target.left - source.left,
+          y: target.top - source.top,
+          scale: target.width / source.width,
+        });
+        window.setTimeout(() => router.push(result.next), 720);
+      } else {
+        window.setTimeout(() => router.push(result.next), 160);
+      }
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "Sign-in failed.");
+      displayLoginError(error instanceof Error ? error.message : "Sign-in failed.");
       setLoginPending(false);
     }
   }
@@ -789,7 +836,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
 
   if (!preview && !authenticatedUser) {
     return (
-      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"}>
+      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"}>
         <a className="skip-link" href="#signin">Skip to sign in</a>
         <div className="ambient" aria-hidden="true" />
         <section className="login-showcase" aria-label="Future Pharmacists introduction">
@@ -802,13 +849,15 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             <h1><span className="shimmer-title">Learn together.<br />Grow with purpose.</span></h1>
             <p>A thoughtful study space for your class: approved notes, practice, and course resources—all in one place.</p>
             <div className="tagline" aria-label="Study, share, support, succeed"><span>Study</span><span>·</span><span>Share</span><span>·</span><span>Support</span><span>·</span><span>Succeed</span></div>
-            <LogoStage reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
+            <LogoStage imageRef={loginLogoRef} reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
           </div>
           <div className="login-footer">A shared learning space for the Pharm D cohort.</div>
         </section>
         <section className="login-panel" id="signin">
           <motion.form
             className="login-card"
+            data-error={loginError ? "true" : "false"}
+            data-shake={loginShake ? "true" : "false"}
             onSubmit={attemptLogin}
             initial={reduceMotion ? false : { opacity: 0, y: 22 }}
             animate={introReady || reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 22 }}
@@ -820,7 +869,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             <div className="form-field"><label htmlFor="email">Email address</label><input id="email" name="email" type="email" autoComplete="username" placeholder="you@example.edu" required /></div>
             <div className="form-field"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" placeholder="Your password" required /></div>
             <p className="form-error" role="alert" aria-live="polite">{loginError}</p>
-            <button className="button-primary button-block" type="submit" disabled={loginPending}>{loginPending ? "Signing in…" : <>Sign in <span aria-hidden="true">→</span></>}</button>
+            <button className="button-primary button-block" type="submit" disabled={loginPending || loginSuccess}>
+              {loginPending ? <><span className="button-spinner" aria-hidden="true" /> Signing in…</> : loginSuccess ? <>Signed in <span aria-hidden="true">✓</span></> : <>Sign in <span aria-hidden="true">→</span></>}
+            </button>
             <div className="demo-callout"><strong>Invited accounts only.</strong> Public registration is disabled. If Supabase is not configured, sign-in will explain that setup is required.</div>
             <button className="button-secondary button-block" type="button" onClick={enterPreview}>Explore visual preview</button>
             <p className="login-footer" style={{ marginTop: "1rem", textAlign: "center" }}>Google Docs sharing access is controlled by each document owner.</p>
@@ -835,6 +886,16 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
               <div className="eyebrow">Study · Share · Support · Succeed</div>
             </motion.div>
           </motion.div>}
+        </AnimatePresence>
+        <AnimatePresence>
+          {loginFlight && <motion.div
+            className="login-logo-flight"
+            style={{ top: loginFlight.top, left: loginFlight.left, width: loginFlight.width, height: loginFlight.height }}
+            initial={{ opacity: 0, x: 0, y: 0, scale: 1 }}
+            animate={{ opacity: 1, x: loginFlight.x, y: loginFlight.y, scale: loginFlight.scale }}
+            transition={{ duration: .65, ease: [.2, .75, .25, 1] }}
+            aria-hidden="true"
+          ><Image src={logoPath} width={330} height={330} alt="" /></motion.div>}
         </AnimatePresence>
       </main>
     );
@@ -1146,7 +1207,7 @@ function BooksPage({ books, canManage, onEdit, itemVariants }: { books: Book[]; 
   </motion.div>;
 }
 
-function LogoStage({ className = "", reduceMotion, pageVisible }: { className?: string; reduceMotion: boolean; pageVisible: boolean }) {
+function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { className?: string; imageRef?: Ref<HTMLImageElement>; reduceMotion: boolean; pageVisible: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [orientationEnabled, setOrientationEnabled] = useState(false);
   const lowPower = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
@@ -1207,7 +1268,7 @@ function LogoStage({ className = "", reduceMotion, pageVisible }: { className?: 
       onPointerMove={handlePointerMove}
       onPointerLeave={resetTilt}
     >
-      <Image className="logo-stage-image" src={logoPath} width={330} height={330} priority alt="" />
+      <Image ref={imageRef} className="logo-stage-image" src={logoPath} width={330} height={330} priority alt="" />
       <div className="logo-book-shine" aria-hidden="true">
         <Image src={logoPath} width={330} height={330} alt="" />
         <span />
