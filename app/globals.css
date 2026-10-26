@@ -289,6 +289,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .book-art { position: relative; display: grid; min-height: 10rem; overflow: hidden; place-items: center; border-radius: var(--radius-sm); background: var(--book-accent, var(--color-surface-raised)); }
 .book-art::before { position: absolute; width: 12rem; aspect-ratio: 1; border: 1px solid rgb(255 255 255 / 24%); border-radius: 50%; box-shadow: 0 0 0 1.5rem rgb(255 255 255 / 3%), 0 0 0 3rem rgb(255 255 255 / 3%); content: ""; }
 .book-art img { position: relative; z-index: 1; max-width: 75%; max-height: 9rem; object-fit: contain; filter: drop-shadow(0 .65rem .8rem rgb(0 0 0 / 26%)); transition: transform var(--duration-normal); }
+.book-art img.book-cover-image { max-width: none; max-height: none; padding: .75rem; object-fit: contain; }
 .book-card:hover .book-art img { transform: translateY(-3px) rotate(-2deg); }
 .book-placeholder { position: relative; z-index: 1; display: grid; width: 6rem; min-height: 8rem; place-items: center; padding: .65rem; border: 1px solid rgb(255 255 255 / 35%); border-left: 5px solid rgb(0 0 0 / 22%); border-radius: .2rem .45rem .45rem .2rem; color: white; background: linear-gradient(140deg, rgb(255 255 255 / 18%), rgb(0 0 0 / 18%)); box-shadow: 0 .8rem 1.2rem rgb(0 0 0 / 20%); font-size: .65rem; font-weight: 850; text-align: center; }
 .price-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .75rem; padding-top: .65rem; border-top: 1px solid var(--color-line); }
@@ -324,7 +325,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .management-card strong { display: block; font-size: .66rem; }
 .management-card small { color: var(--color-muted); font-size: .56rem; }
 .management-actions { display: flex; flex-wrap: wrap; gap: .3rem; }
+.management-actions select { min-height: 2.65rem; padding: .45rem .65rem; border: 1px solid var(--color-line); border-radius: var(--radius-sm); color: var(--color-ink); background: var(--color-surface-raised); font-size: .68rem; }
 .person-row { display: flex; align-items: center; gap: .6rem; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: .7rem; padding: .6rem 0; border-top: 1px solid var(--color-line); font-size: .67rem; }
 .settings-row label { display: flex; align-items: center; gap: .5rem; }
 .settings-row input[type="checkbox"] { accent-color: var(--color-ring); }

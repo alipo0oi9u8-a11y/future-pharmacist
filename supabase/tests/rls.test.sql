@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(16);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -31,6 +31,11 @@ select '30000000-0000-0000-0000-000000000002', s.id, b.id, 'Chapter 2', 'Pending
        '10000000-0000-0000-0000-000000000003'
 from public.subjects s join public.books b on b.subject_id = s.id
 where s.slug = 'physiology' and b.id = '20000000-0000-0000-0000-000000000001';
+insert into public.notes (id, subject_id, book_id, chapter, topic, submitted_by, status, reviewer_id, reviewed_at, rejection_reason)
+select '30000000-0000-0000-0000-000000000003', s.id, b.id, 'Chapter 3', 'Rejected fixture',
+       '10000000-0000-0000-0000-000000000003', 'rejected', '10000000-0000-0000-0000-000000000001', now(), 'Test rejection'
+from public.subjects s join public.books b on b.subject_id = s.id
+where s.slug = 'physiology' and b.id = '20000000-0000-0000-0000-000000000001';
 
 insert into public.quizzes (id, subject_id, title, is_published, created_by)
 select '40000000-0000-0000-0000-000000000001', id, 'Sample quiz', true,
@@ -46,7 +51,7 @@ select is(has_table_privilege('authenticated', 'public.profiles', 'update'), fal
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
-select is((select count(*)::integer from public.notes where id = '30000000-0000-0000-0000-000000000002'), 0, 'students cannot see pending notes');
+select is((select count(*)::integer from public.notes where id in ('30000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003')), 0, 'students cannot see pending or rejected notes');
 select is((select count(*)::integer from public.notes_public where id = '30000000-0000-0000-0000-000000000001'), 1, 'students can see approved notes');
 select throws_ok(
   $$insert into public.notes (subject_id, book_id, chapter, topic, submitted_by, status)
@@ -55,8 +60,18 @@ select throws_ok(
   '42501', null, 'students cannot submit directly as approved'
 );
 select throws_ok(
+  $$insert into public.notes (subject_id, book_id, chapter, topic, submitted_by, status)
+    select s.id, b.id, 'Chapter', 'Attempt without permission', auth.uid(), 'pending'
+    from public.subjects s join public.books b on b.subject_id = s.id where s.slug = 'physiology' limit 1$$,
+  '42501', null, 'students without explicit contribution permission cannot submit'
+);
+select throws_ok(
   $$update public.profiles set role = 'developer' where id = auth.uid()$$,
   '42501', null, 'users cannot escalate their own role'
+);
+select throws_ok(
+  $$select public.owner_update_member('10000000-0000-0000-0000-000000000002', 'teacher', true, auth.uid())$$,
+  '42501', null, 'users cannot grant roles or contribution permissions'
 );
 select throws_ok(
   $$select public.review_note('30000000-0000-0000-0000-000000000002', 'approved', null)$$,
@@ -96,6 +111,10 @@ select is(
 select is(
   (select reviewer_id from public.notes where id = '30000000-0000-0000-0000-000000000002'),
   '10000000-0000-0000-0000-000000000001'::uuid, 'approval records its reviewer'
+);
+select ok(
+  (select reviewed_at is not null from public.notes where id = '30000000-0000-0000-0000-000000000002'),
+  'approval records its review timestamp'
 );
 
 select * from finish();
