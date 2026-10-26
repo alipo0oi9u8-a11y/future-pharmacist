@@ -109,6 +109,7 @@ type NotificationItem = {
   created_at: string;
   isRead: boolean;
 };
+type LeaderboardEntry = { displayName: string; weeklyXp: number; rank: number };
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -183,6 +184,10 @@ const previewGamification: GamificationSummary = {
 const previewNotifications: NotificationItem[] = [
   { id: "preview-notice-1", event_type: "approved_note", title: "Sample approved note", message: "Preview chapter · sample update", created_at: "2026-10-20T09:00:00.000Z", isRead: false },
   { id: "preview-notice-2", event_type: "announcement", title: "Welcome to the study space", message: "Announcements and approved resources will appear here.", created_at: "2026-10-20T09:00:00.000Z", isRead: false },
+];
+const previewLeaderboard: LeaderboardEntry[] = [
+  { displayName: "Sample learner", weeklyXp: 75, rank: 1 },
+  { displayName: "Sample classmate", weeklyXp: 42, rank: 2 },
 ];
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
@@ -340,6 +345,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [commandQuery, setCommandQuery] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
   const [toast, setToast] = useState("");
   const [dialog, setDialog] = useState<"note" | "invite" | "book" | "announcement" | "exam" | null>(null);
   const [activeBookId, setActiveBookId] = useState("");
@@ -443,6 +449,16 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           if (!cancelled) {
             console.error("Could not load account notifications.", error);
             openToast("Notifications could not be loaded.");
+          }
+        }
+        try {
+          const leaderboardData = await requestJson<{ entries: LeaderboardEntry[] }>("/api/leaderboard");
+          if (cancelled) return;
+          setLeaderboardEntries(leaderboardData.entries);
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Could not load the weekly leaderboard.", error);
+            openToast("The weekly leaderboard could not be loaded.");
           }
         }
         if (authenticatedUser.role === "developer") {
@@ -665,9 +681,18 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       openToast(error instanceof Error ? error.message : "Study progress could not be refreshed.");
     }
   }
+  async function refreshLeaderboard() {
+    try {
+      const result = await requestJson<{ entries: LeaderboardEntry[] }>("/api/leaderboard");
+      setLeaderboardEntries(result.entries);
+    } catch (error) {
+      openToast(error instanceof Error ? error.message : "The weekly leaderboard could not be refreshed.");
+    }
+  }
   function enterPreview() {
     setPreview(true);
     setNotifications(previewNotifications);
+    setLeaderboardEntries(previewLeaderboard);
     setPage("dashboard");
     setAuditEntries((entries) => [`Entered visual-only developer preview`, ...entries]);
   }
@@ -715,6 +740,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     if (preview) {
       setPreview(false);
       setNotifications([]);
+      setLeaderboardEntries([]);
       setPage("dashboard");
       return;
     }
@@ -1141,8 +1167,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   function updateReduceAnimations(enabled: boolean) {
     void saveUserPreferences({ reduceAnimations: enabled });
   }
-  function updateLeaderboardOptIn(enabled: boolean) {
-    void saveUserPreferences({ leaderboardOptIn: enabled });
+  async function updateLeaderboardOptIn(enabled: boolean) {
+    await saveUserPreferences({ leaderboardOptIn: enabled });
+    if (authenticatedUser && !preview) await refreshLeaderboard();
   }
 
   const pageVariants: Variants = !motionEnabled ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
@@ -1292,6 +1319,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   leaderboardOptIn={leaderboardOptIn}
                   onLeaderboard={updateLeaderboardOptIn}
                   preferenceStatus={preferenceStatus}
+                  leaderboardEntries={preview ? previewLeaderboard : leaderboardEntries}
                 />}
                 {page === "notes" && <NotesPage
                   notes={filteredNotes()}
@@ -1444,7 +1472,7 @@ function SectionHeading({ title, detail, action }: { title: string; detail?: str
   return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
-function Dashboard({ preview, gamification, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible, theme, onTheme, reduceAnimations, onReduceAnimations, soundEnabled, onSoundEnabled, leaderboardOptIn, onLeaderboard, preferenceStatus }: {
+function Dashboard({ preview, gamification, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible, theme, onTheme, reduceAnimations, onReduceAnimations, soundEnabled, onSoundEnabled, leaderboardOptIn, onLeaderboard, preferenceStatus, leaderboardEntries }: {
   preview: boolean;
   gamification: GamificationSummary | null;
   notes: Note[]; pendingCount: number; books: Book[]; announcements: CourseAnnouncement[]; examDates: CourseExam[];
@@ -1454,6 +1482,7 @@ function Dashboard({ preview, gamification, notes, pendingCount, books, announce
   reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void;
   soundEnabled: boolean; onSoundEnabled: (value: boolean) => void;
   leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; preferenceStatus: string;
+  leaderboardEntries: LeaderboardEntry[];
 }) {
   const recent = notes.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3);
   const nextExam = examDates[0];
@@ -1511,6 +1540,13 @@ function Dashboard({ preview, gamification, notes, pendingCount, books, announce
       <div className="settings-row"><label htmlFor="account-sound">Sound effects (off by default)</label><input id="account-sound" type="checkbox" checked={soundEnabled} onChange={(event) => onSoundEnabled(event.target.checked)} /></div>
       <div className="settings-row"><label htmlFor="account-leaderboard">Opt in to the display-name-only weekly leaderboard</label><input id="account-leaderboard" type="checkbox" checked={leaderboardOptIn} onChange={(event) => onLeaderboard(event.target.checked)} /></div>
       <p className="preference-status" role="status" aria-live="polite">{preferenceStatus}</p>
+    </section>
+    <SectionHeading title="Weekly leaderboard" detail="Participation is optional; only opted-in display names and this week's XP are shown." />
+    <section className="panel" aria-label="Weekly leaderboard">
+      <div className="panel-header"><div><h2>Study community</h2><p>{preview ? "Sample ranks and XP · preview only." : "Current week's XP from quiz answers and flashcard reviews."}</p></div><span className="chip">{preview ? "Sample preview" : "Opt-in only"}</span></div>
+      {leaderboardEntries.length ? <div className="leaderboard-list">{leaderboardEntries.map((entry) => <div className="list-row" key={`${entry.rank}-${entry.displayName}`}>
+        <span className="list-icon">#{entry.rank}</span><div><strong>{entry.displayName}{preview ? " · sample" : ""}</strong><small>{entry.weeklyXp} XP{preview ? " · sample" : ""}</small></div>
+      </div>)}</div> : <EmptyState>No one has opted in yet.</EmptyState>}
     </section>
     <p className="login-footer" style={{ marginTop: "1.4rem", textAlign: "center" }}>Visual demo content is illustrative; verify your actual course list and textbook requirements with faculty.</p>
   </motion.div>;

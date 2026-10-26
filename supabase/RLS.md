@@ -25,6 +25,7 @@ RLS is enabled on every application table by the initial migration. The security
 | `badges` / `user_badges` | Active users read active definitions; users read only their own awards. No client write grant is given. |
 | `first-quiz` / `seven-day-streak` badges | The database awards these after a non-empty quiz attempt is completed or a user's daily streak reaches seven; clients cannot grant badges. |
 | `user_preferences` | Active users read only their own row. Direct writes are revoked; the `save_user_preferences` RPC validates allowed values and always derives the owner from `auth.uid()`. |
+| `user_xp_events` | Users read only their own immutable XP history. A database trigger records positive XP changes; the `weekly_leaderboard` RPC returns only opted-in display names, weekly XP, and rank—never email addresses or user IDs. |
 | `announcements` | Active users read published announcements; only the developer can manage them. |
 | `notification_events` | Active users read the shared feed. Database triggers create entries only when a note is approved or an announcement is published; clients have no write grant or policy. |
 | `user_notification_reads` | A user reads only their own read-state rows. The `mark_notification_read` RPC derives the user from `auth.uid()`; direct writes are revoked. |
