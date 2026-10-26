@@ -4,8 +4,8 @@ import confetti from "canvas-confetti";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { Variants } from "motion/react";
 import type { AppRole } from "@/lib/supabase/types";
 
@@ -72,6 +72,8 @@ type StudyQuestion = {
 };
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
+export const LAYERED_LOGO_MODE = false;
+const logoDecorations = Array.from({ length: 12 }, (_, index) => index);
 const subjects = [
   { name: "Physiology", mark: "♡", color: "var(--subject-physiology)", book: "Course textbook not confirmed" },
   { name: "Organic Chemistry", mark: "⌬", color: "var(--subject-organic)", book: "Course textbook not confirmed" },
@@ -128,6 +130,9 @@ const pageTitle: Record<PageKey, string> = {
   developer: "Developer desk",
 };
 const themeChangeEvent = "future-pharmacists-theme-change";
+const subscribeToNoChanges = () => () => {};
+const getLowPowerDeviceSnapshot = () => (navigator.hardwareConcurrency || 8) <= 4;
+const getServerLowPowerSnapshot = () => false;
 const subscribeToTheme = (callback: () => void) => {
   window.addEventListener(themeChangeEvent, callback);
   return () => window.removeEventListener(themeChangeEvent, callback);
@@ -190,6 +195,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [dataLoading, setDataLoading] = useState(Boolean(authenticatedUser));
   const [loginError, setLoginError] = useState("");
   const [loginPending, setLoginPending] = useState(false);
+  const [pageVisible, setPageVisible] = useState(true);
   const [query, setQuery] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All subjects");
   const [bookFilter, setBookFilter] = useState("All books");
@@ -347,6 +353,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }, [reduceMotion]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+
+  useEffect(() => {
+    const updateVisibility = () => setPageVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -777,7 +789,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
 
   if (!preview && !authenticatedUser) {
     return (
-      <main className={`login-layout ${reduceAnimations ? "reduce-animation" : ""}`}>
+      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"}>
         <a className="skip-link" href="#signin">Skip to sign in</a>
         <div className="ambient" aria-hidden="true" />
         <section className="login-showcase" aria-label="Future Pharmacists introduction">
@@ -787,13 +799,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           </div>
           <div className="login-story">
             <div className="eyebrow">Pharm D · Semester 1</div>
-            <h1>Learn together.<br />Grow with purpose.</h1>
+            <h1><span className="shimmer-title">Learn together.<br />Grow with purpose.</span></h1>
             <p>A thoughtful study space for your class: approved notes, practice, and course resources—all in one place.</p>
             <div className="tagline" aria-label="Study, share, support, succeed"><span>Study</span><span>·</span><span>Share</span><span>·</span><span>Support</span><span>·</span><span>Succeed</span></div>
-            <div className="logo-stage" aria-label="Future Pharmacists logo animation">
-              <Image src={logoPath} width={330} height={330} priority alt="" />
-              <svg className="logo-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
-            </div>
+            <LogoStage reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
           </div>
           <div className="login-footer">A shared learning space for the Pharm D cohort.</div>
         </section>
@@ -822,8 +831,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             <div className="ambient" aria-hidden="true" />
             <button className="button-secondary intro-skip" type="button" onClick={finishIntro}>Skip intro</button>
             <motion.div className="intro-content" initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .94 }} transition={{ duration: .65, ease: [.2, .75, .25, 1] }}>
-              <Image src={logoPath} width={250} height={250} priority alt="Future Pharmacists supplied logo" />
-              <svg className="logo-ring intro-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
+              <LogoStage className="intro-logo-stage" reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
               <div className="eyebrow">Study · Share · Support · Succeed</div>
             </motion.div>
           </motion.div>}
@@ -833,7 +841,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
 
   return (
-    <div className="app-frame" data-motion={motionEnabled ? "on" : "off"}>
+    <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"}>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="ambient" aria-hidden="true" />
       <div className="application">
@@ -1136,6 +1144,83 @@ function BooksPage({ books, canManage, onEdit, itemVariants }: { books: Book[]; 
       {canManage && <button className="button-quiet" type="button" onClick={() => onEdit(book.id)}>Developer: edit listing</button>}
     </motion.article>)}</div>
   </motion.div>;
+}
+
+function LogoStage({ className = "", reduceMotion, pageVisible }: { className?: string; reduceMotion: boolean; pageVisible: boolean }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [orientationEnabled, setOrientationEnabled] = useState(false);
+  const lowPower = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
+  const motionOff = reduceMotion || !pageVisible;
+
+  useEffect(() => {
+    if (!orientationEnabled || motionOff) return;
+    const handleOrientation = (event: DeviceOrientationEvent) => {
+      const stage = stageRef.current;
+      if (!stage || event.beta === null || event.gamma === null) return;
+      const tiltX = Math.max(-8, Math.min(8, event.beta / 6));
+      const tiltY = Math.max(-8, Math.min(8, event.gamma / 4));
+      stage.style.setProperty("--tilt-x", `${tiltX}deg`);
+      stage.style.setProperty("--tilt-y", `${tiltY}deg`);
+    };
+    window.addEventListener("deviceorientation", handleOrientation);
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
+  }, [orientationEnabled, motionOff]);
+
+  async function enableOrientationTilt() {
+    if (!("DeviceOrientationEvent" in window)) return;
+    const eventConstructor = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<"granted" | "denied">;
+    };
+    if (eventConstructor.requestPermission) {
+      try {
+        const permission = await eventConstructor.requestPermission();
+        setOrientationEnabled(permission === "granted");
+      } catch (error) {
+        console.error("Device orientation permission was not granted.", error);
+      }
+    } else {
+      setOrientationEnabled(true);
+    }
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (motionOff || !window.matchMedia("(pointer: fine)").matches) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / bounds.width;
+    const y = (event.clientY - bounds.top) / bounds.height;
+    event.currentTarget.style.setProperty("--tilt-x", `${(0.5 - y) * 16}deg`);
+    event.currentTarget.style.setProperty("--tilt-y", `${(x - 0.5) * 16}deg`);
+  }
+
+  function resetTilt(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.style.setProperty("--tilt-x", "0deg");
+    event.currentTarget.style.setProperty("--tilt-y", "0deg");
+  }
+
+  return (
+    <div
+      ref={stageRef}
+      className={`logo-stage ${className} ${pageVisible ? "" : "is-tab-hidden"}`}
+      data-layered-logo-mode={LAYERED_LOGO_MODE ? "on" : "off"}
+      data-low-power={lowPower ? "true" : "false"}
+      aria-label="Future Pharmacists supplied logo"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={resetTilt}
+    >
+      <Image className="logo-stage-image" src={logoPath} width={330} height={330} priority alt="" />
+      <div className="logo-book-shine" aria-hidden="true">
+        <Image src={logoPath} width={330} height={330} alt="" />
+        <span />
+      </div>
+      <svg className="logo-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
+      <div className="logo-decorations" aria-hidden="true">
+        {logoDecorations.map((decoration) => <span key={decoration} data-shape={decoration % 3 === 0 ? "capsule" : decoration % 3 === 1 ? "leaf" : "sparkle"} />)}
+      </div>
+      <button className="orientation-tilt-button" type="button" onClick={() => void enableOrientationTilt()}>
+        {orientationEnabled ? "Motion tilt enabled" : "Enable motion tilt"}
+      </button>
+    </div>
+  );
 }
 
 function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, itemVariants }: {
