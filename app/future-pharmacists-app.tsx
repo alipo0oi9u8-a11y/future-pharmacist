@@ -1,7 +1,7 @@
 "use client";
 
 import confetti from "canvas-confetti";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -74,6 +74,7 @@ type StudyQuestion = {
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
 const logoDecorations = Array.from({ length: 12 }, (_, index) => index);
+const ambientParticleCount = Array.from({ length: 9 }, (_, index) => index);
 const subjects = [
   { name: "Physiology", mark: "♡", color: "var(--subject-physiology)", book: "Course textbook not confirmed" },
   { name: "Organic Chemistry", mark: "⌬", color: "var(--subject-organic)", book: "Course textbook not confirmed" },
@@ -200,6 +201,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [loginFlight, setLoginFlight] = useState<{ top: number; left: number; width: number; height: number; x: number; y: number; scale: number } | null>(null);
   const loginLogoRef = useRef<HTMLImageElement>(null);
   const [pageVisible, setPageVisible] = useState(true);
+  const lowPowerDevice = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
   const [query, setQuery] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All subjects");
   const [bookFilter, setBookFilter] = useState("All books");
@@ -825,11 +827,11 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     go(item.page);
   }
 
-  const pageVariants: Variants = reduceMotion ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
+  const pageVariants: Variants = !motionEnabled ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
     initial: { opacity: 0, y: 10 },
     animate: { opacity: 1, y: 0, transition: { duration: .34, ease: [.2, .75, .25, 1] as const, staggerChildren: .055 } },
   };
-  const itemVariants: Variants = reduceMotion ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
+  const itemVariants: Variants = !motionEnabled ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
     initial: { opacity: 0, y: 12 },
     animate: { opacity: 1, y: 0, transition: { duration: .35, ease: [.2, .75, .25, 1] as const } },
   };
@@ -838,7 +840,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     return (
       <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"}>
         <a className="skip-link" href="#signin">Skip to sign in</a>
-        <div className="ambient" aria-hidden="true" />
+        <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
         <section className="login-showcase" aria-label="Future Pharmacists introduction">
           <div className="brand-lockup">
             <Image className="brand-logo" src={logoPath} width={56} height={56} priority alt="Future Pharmacists supplied logo" />
@@ -879,7 +881,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         </section>
         <AnimatePresence>
           {intro && <motion.div className="intro-overlay" initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .3 }}>
-            <div className="ambient" aria-hidden="true" />
+            <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
             <button className="button-secondary intro-skip" type="button" onClick={finishIntro}>Skip intro</button>
             <motion.div className="intro-content" initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .94 }} transition={{ duration: .65, ease: [.2, .75, .25, 1] }}>
               <LogoStage className="intro-logo-stage" reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
@@ -904,7 +906,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   return (
     <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"}>
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <div className="ambient" aria-hidden="true" />
+      <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
       <div className="application">
         <aside className="sidebar">
           <div className="brand-lockup">
@@ -934,8 +936,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           </header>
           <main id="main-content" className="content">
             <AnimatePresence mode="wait">
-              <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={{ opacity: 0, y: -5, transition: { duration: .15 } }}>
-                {page === "dashboard" && <>{dataLoading && <div className="notice" role="status">Loading your approved study materials…</div>}<Dashboard notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} /></>}
+              <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={motionEnabled ? { opacity: 0, y: -5, transition: { duration: .15 } } : undefined}>
+                {page === "dashboard" && <Dashboard notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
                 {page === "notes" && <NotesPage
                   notes={filteredNotes()}
                   query={query}
@@ -957,6 +959,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   onOpenSubmit={() => { setNoteFormError(""); setDialog("note"); }}
                   onPreview={() => openToast("Preview note: add and approve a real Google Docs link after Supabase is configured.")}
                   itemVariants={itemVariants}
+                  motionEnabled={motionEnabled}
                 />}
                 {page === "quiz" && <QuizPage
                   question={currentQuestion}
@@ -976,8 +979,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   flashcardRating={flashcardRating}
                   onRate={(rating) => { setFlashcardRating(rating); setFlashcardSide(false); openToast(`Sample flashcard scheduled: ${rating}.`); }}
                   itemVariants={itemVariants}
+                  motionEnabled={motionEnabled}
                 />}
-                {page === "books" && <BooksPage books={books} canManage={preview || authenticatedUser?.role === "developer"} onEdit={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }} itemVariants={itemVariants} />}
+                {page === "books" && <BooksPage books={books} canManage={preview || authenticatedUser?.role === "developer"} onEdit={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }} itemVariants={itemVariants} motionEnabled={motionEnabled} />}
                 {page === "developer" && (preview || authenticatedUser?.role === "developer") && <DeveloperDesk
                   preview={preview}
                   pendingNotes={pendingNotes}
@@ -1070,29 +1074,31 @@ function SectionHeading({ title, detail, action }: { title: string; detail?: str
   return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
-function Dashboard({ notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants }: {
+function Dashboard({ notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
   notes: Note[]; pendingCount: number; books: Book[]; announcements: CourseAnnouncement[]; examDates: CourseExam[];
   showDeveloperTools: boolean; onNavigate: (page: PageKey) => void; itemVariants: Variants;
+  loading: boolean; motionEnabled: boolean; pageVisible: boolean;
 }) {
   const recent = notes.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3);
   const nextExam = examDates[0];
+  if (loading) return <DashboardSkeleton />;
   return <motion.div variants={itemVariants}>
     <section className="hero-panel">
       <div className="hero-copy"><div className="eyebrow">Pharm D · Semester 1</div><h1>Your next great idea starts here.</h1><p>Build strong foundations with approved notes, focused practice, and resources your class can trust.</p><button className="button-primary" type="button" onClick={() => onNavigate("notes")}>Explore the notes library <span aria-hidden="true">→</span></button></div>
       <Image className="hero-logo" src={logoPath} width={155} height={155} alt="Future Pharmacists supplied logo" />
     </section>
     <div className="stats-grid">
-      <StatCard icon="▤" value={String(notes.length)} label="Approved notes" />
-      <StatCard icon="✳" value={String(subjects.length)} label="Semester subjects" />
-      <StatCard icon="▣" value={String(books.length)} label="Book resources" />
-      <StatCard icon="◷" value="0 days" label="Study streak · preview" />
+      <StatCard icon="▤" value={String(notes.length)} label="Approved notes" motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="✳" value={String(subjects.length)} label="Semester subjects" motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="▣" value={String(books.length)} label="Book resources" motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="◷" value="0 days" label="Study streak · preview" motionEnabled={motionEnabled} pageVisible={pageVisible} />
     </div>
     <SectionHeading title="Your five subjects" detail="Subject accents are inspired by the books in your logo." action={<button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Browse all →</button>} />
     <div className="subject-grid">
       {subjects.map((subject, index) => {
         const count = notes.filter((note) => note.status === "approved" && note.subject === subject.name).length;
         const progress = [36, 22, 48, 61, 18][index];
-        return <motion.button key={subject.name} className="subject-card" variants={itemVariants} type="button" style={{ "--accent": subject.color } as CSSProperties} onClick={() => onNavigate("notes")}>
+        return <motion.button key={subject.name} className="subject-card" variants={itemVariants} whileHover={motionEnabled ? { y: -5, rotateX: 1.5, rotateY: -1.5 } : undefined} type="button" style={{ "--accent": subject.color } as CSSProperties} onClick={() => onNavigate("notes")}>
           <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes · sample progress {progress}%</small>
         </motion.button>;
       })}
@@ -1102,8 +1108,8 @@ function Dashboard({ notes, pendingCount, books, announcements, examDates, showD
         {recent.length ? recent.map((note) => <div className="list-row" key={note.id}><span className="list-icon">{note.subject.slice(0, 3).toUpperCase()}</span><div><strong>{note.topic}</strong><small>{note.subject} · {note.chapter}</small></div></div>) : <EmptyState>No approved notes yet.</EmptyState>}
       </section>
       <section className="panel"><div className="panel-header"><div><h2>Study rhythm</h2><p>Small, repeatable sessions add up.</p></div><span className="chip">Preview</span></div>
-        <div className="subject-progress-row">        <span className="ring-progress" style={{ "--progress": 62 } as CSSProperties}><span>62%</span></span><div><strong>Daily study goal</strong><small>Sample progress only · no activity saved</small></div></div>
-        <div className="progress-track"><span style={{ width: "62%" }} /></div>
+        <div className="subject-progress-row"><motion.span className="ring-progress" initial={motionEnabled ? { scale: .2, opacity: .45 } : { scale: 1, opacity: 1 }} whileInView={motionEnabled ? { scale: 1, opacity: 1 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .75, ease: "easeOut" }} style={{ "--progress": 62 } as CSSProperties}><span>62%</span></motion.span><div><strong>Daily study goal</strong><small>Sample progress only · no activity saved</small></div></div>
+        <div className="progress-track"><motion.span initial={motionEnabled ? { scaleX: 0 } : { scaleX: .62 }} whileInView={motionEnabled ? { scaleX: .62 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .9, ease: "easeOut" }} style={{ transformOrigin: "left" }} /></div>
         <div className="list-row"><span className="list-icon">◷</span><div><strong>Pomodoro focus timer</strong><small>Start a 25-minute study session.</small></div><Pomodoro /></div>
         <div className="list-row"><span className="list-icon">⚑</span><div><strong>{nextExam?.title ?? "Next class deadline"}</strong><small>{nextExam ? new Date(nextExam.starts_at).toLocaleString() : "No deadline provided yet."}</small></div></div>
       </section>
@@ -1123,13 +1129,50 @@ function Dashboard({ notes, pendingCount, books, announcements, examDates, showD
   </motion.div>;
 }
 
-function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {
-  return <motion.div className="stat-card" whileHover={{ y: -3 }} transition={{ duration: .2 }}><span className="stat-icon" aria-hidden="true">{icon}</span><div><strong>{value}</strong><small>{label}</small></div></motion.div>;
+function AmbientBackground({ lowPower, pageVisible }: { lowPower: boolean; pageVisible: boolean }) {
+  return <div className={`ambient ${pageVisible ? "" : "is-tab-hidden"}`} data-low-power={lowPower ? "true" : "false"} aria-hidden="true">
+    {ambientParticleCount.map((particle) => <span className="ambient-particle" key={particle} data-shape={particle % 3 === 0 ? "capsule" : particle % 3 === 1 ? "leaf" : "molecule"} style={{ "--particle-index": particle } as CSSProperties} />)}
+  </div>;
 }
 
-function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, savedNotes, helpfulNotes, reportedNotes, books, canSubmit, onQuery, onSubject, onBook, onChapter, onSave, onHelpful, onReport, onOpenSubmit, onPreview, itemVariants }: {
+function DashboardSkeleton() {
+  return <div className="dashboard-skeleton" role="status" aria-label="Loading dashboard">
+    <div className="skeleton-block skeleton-hero" />
+    <div className="stats-grid">{ambientParticleCount.slice(0, 4).map((item) => <div className="skeleton-block skeleton-stat" key={item} />)}</div>
+    <div className="skeleton-block skeleton-section" />
+    <div className="subject-grid">{ambientParticleCount.slice(0, 5).map((item) => <div className="skeleton-block skeleton-subject" key={item} />)}</div>
+    <div className="dashboard-grid">{ambientParticleCount.slice(0, 2).map((item) => <div className="skeleton-block skeleton-panel" key={item} />)}</div>
+    <span className="visually-hidden">Loading your approved study materials…</span>
+  </div>;
+}
+
+function StatCard({ icon, value, label, motionEnabled, pageVisible }: { icon: string; value: string; label: string; motionEnabled: boolean; pageVisible: boolean }) {
+  return <motion.div className="stat-card" whileHover={motionEnabled ? { y: -3, rotateX: 1, rotateY: -1 } : undefined} transition={{ duration: .2 }}><span className="stat-icon" aria-hidden="true">{icon}</span><div><strong><AnimatedCounter value={value} motionEnabled={motionEnabled} pageVisible={pageVisible} /></strong><small>{label}</small></div></motion.div>;
+}
+
+function AnimatedCounter({ value, motionEnabled, pageVisible }: { value: string; motionEnabled: boolean; pageVisible: boolean }) {
+  const match = value.match(/^([^\d]*)(\d+)(.*)$/);
+  const numericValue = match ? Number(match[2]) : null;
+  const counter = useMotionValue(0);
+  const display = useTransform(counter, (current) => `${match?.[1] ?? ""}${Math.round(current).toLocaleString()}${match?.[3] ?? ""}`);
+
+  useEffect(() => {
+    if (numericValue === null) return;
+    if (!motionEnabled) {
+      counter.set(numericValue);
+      return;
+    }
+    if (!pageVisible) return;
+    const controls = animate(counter, numericValue, { duration: .85, ease: "easeOut" });
+    return () => controls.stop();
+  }, [counter, motionEnabled, numericValue, pageVisible]);
+
+  return numericValue === null ? <>{value}</> : <motion.span aria-label={value}>{display}</motion.span>;
+}
+
+function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, savedNotes, helpfulNotes, reportedNotes, books, canSubmit, onQuery, onSubject, onBook, onChapter, onSave, onHelpful, onReport, onOpenSubmit, onPreview, itemVariants, motionEnabled }: {
   notes: Note[]; query: string; subjectFilter: string; bookFilter: string; chapterFilter: string; savedNotes: string[]; helpfulNotes: string[]; reportedNotes: string[]; books: Book[];
-  canSubmit: boolean; onQuery: (value: string) => void; onSubject: (value: string) => void; onBook: (value: string) => void; onChapter: (value: string) => void; onSave: (id: string) => void; onHelpful: (id: string) => void; onReport: (id: string) => void; onOpenSubmit: () => void; onPreview: () => void; itemVariants: Variants;
+  canSubmit: boolean; onQuery: (value: string) => void; onSubject: (value: string) => void; onBook: (value: string) => void; onChapter: (value: string) => void; onSave: (id: string) => void; onHelpful: (id: string) => void; onReport: (id: string) => void; onOpenSubmit: () => void; onPreview: () => void; itemVariants: Variants; motionEnabled: boolean;
 }) {
   const bookOptions = [...new Set(books.map((book) => book.title))];
   const chapters = [...new Set(notes.map((note) => note.chapter))];
@@ -1143,7 +1186,7 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
       <select aria-label="Filter by chapter" value={chapterFilter} onChange={(event) => onChapter(event.target.value)}><option>All chapters</option>{chapters.map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
     </div>
     <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}</h2><span className="chip">New this week · preview</span></div>
-    <div className="card-grid">{notes.length ? notes.map((note) => <motion.article className="note-card" key={note.id} variants={itemVariants} whileHover={{ y: -4 }}>
+    <div className="card-grid">{notes.length ? notes.map((note) => <motion.article className="note-card" key={note.id} variants={itemVariants} whileHover={motionEnabled ? { y: -4, rotateX: 1.5, rotateY: -1.5 } : undefined} style={{ "--card-accent": subjectColor(note.subject) } as CSSProperties}>
       <div className="card-meta"><span className="chip" style={{ color: subjectColor(note.subject) }}>{note.subject}</span><span className="chip">Approved</span></div>
       <h3>{note.topic}</h3><p>{note.book}<br />{note.chapter}</p>
       <div className="card-footer"><small>By {note.submittedBy}</small><div className="note-actions">
@@ -1155,8 +1198,8 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
   </motion.div>;
 }
 
-function QuizPage({ question, sample, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants }: {
-  question: StudyQuestion; sample: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants;
+function QuizPage({ question, sample, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants, motionEnabled }: {
+  question: StudyQuestion; sample: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants; motionEnabled: boolean;
 }) {
   const questionNumber = (index % total) + 1;
   return <motion.div variants={itemVariants}>
@@ -1165,7 +1208,7 @@ function QuizPage({ question, sample, index, score, total, answered, selectedAns
     <div className="toolbar"><label className="search-control"><span aria-hidden="true">✳</span><select aria-label="Quiz mode" value={mode} onChange={(event) => onMode(event.target.value)}>{["Standard", "Timed practice", "Daily challenge", "Review mistakes"].map((item) => <option key={item}>{item}</option>)}</select></label><select aria-label="Quiz subject" defaultValue="All subjects"><option>All subjects</option>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select></div>
     <div className="quiz-layout">
       <section className="quiz-card"><div className="quiz-top"><span>{question.subject} · {question.chapter}</span><span>Question {questionNumber} of {total}</span></div>
-        <div className="progress-track"><motion.span initial={{ width: 0 }} animate={{ width: `${questionNumber / total * 100}%` }} transition={{ duration: .45 }} /></div>
+        <div className="progress-track"><motion.span initial={motionEnabled ? { scaleX: 0 } : { scaleX: questionNumber / total }} animate={motionEnabled ? { scaleX: questionNumber / total } : undefined} transition={{ duration: .45 }} style={{ transformOrigin: "left" }} /></div>
         <h2>{question.prompt}</h2>
         <div className="quiz-options">{question.options.map((option) => {
           const state = answered && option === selectedAnswer ? lastAnswerCorrect ? "correct" : "incorrect" : "";
@@ -1187,11 +1230,11 @@ function QuizPage({ question, sample, index, score, total, answered, selectedAns
   </motion.div>;
 }
 
-function BooksPage({ books, canManage, onEdit, itemVariants }: { books: Book[]; canManage: boolean; onEdit: (id: string) => void; itemVariants: Variants }) {
+function BooksPage({ books, canManage, onEdit, itemVariants, motionEnabled }: { books: Book[]; canManage: boolean; onEdit: (id: string) => void; itemVariants: Variants; motionEnabled: boolean }) {
   return <motion.div variants={itemVariants}>
     <PageHeading eyebrow="Course essentials" title="Books & resources" description="See what is known, what needs confirmation, and where to compare local buying options." />
     <div className="notice"><strong>Course list not verified.</strong> Titles, editions, prices, and requirements are unconfirmed until your faculty/course outline and local booksellers are checked. Nothing below is represented as required.</div>
-    <div className="card-grid">{books.map((book) => <motion.article className="book-card" key={book.id} variants={itemVariants} whileHover={{ y: -4 }}>
+    <div className="card-grid">{books.map((book) => <motion.article className="book-card" key={book.id} variants={itemVariants} whileHover={motionEnabled ? { y: -4, rotateX: 1.5, rotateY: -1.5 } : undefined} style={{ "--card-accent": subjectColor(book.subject) } as CSSProperties}>
       <div className="book-art" style={{ "--book-accent": book.accent } as CSSProperties}>
         {book.imageName && bookCoverUrl(book.imageName)
           ? <Image className="book-cover-image" src={bookCoverUrl(book.imageName) ?? ""} alt={`${book.title} cover`} fill sizes="(max-width: 760px) 90vw, (max-width: 1200px) 42vw, 28vw" unoptimized />
