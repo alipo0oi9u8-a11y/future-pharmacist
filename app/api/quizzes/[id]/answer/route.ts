@@ -13,13 +13,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!uuidPattern.test(id)) return errorResponse("Invalid question identifier.");
 
   const body: unknown = await request.json().catch(() => null);
-  if (!body || typeof body !== "object" || !("selectedIndex" in body) || !Number.isInteger(body.selectedIndex)) {
+  if (!body || typeof body !== "object" || !("selectedIndex" in body) || !Number.isInteger(body.selectedIndex)
+    || !("attemptId" in body) || typeof body.attemptId !== "string" || !uuidPattern.test(body.attemptId)) {
     return errorResponse("Choose one of the available answers.");
   }
   const selectedIndex = body.selectedIndex;
   if (typeof selectedIndex !== "number" || selectedIndex < 0 || selectedIndex > 7) return errorResponse("The selected answer is invalid.");
 
-  const { data, error } = await session.client.rpc("submit_quiz_answer", {
+  const { data, error } = await session.client.rpc("submit_quiz_attempt_answer", {
+    p_attempt_id: body.attemptId,
     p_question_id: id,
     p_selected_index: selectedIndex,
   });
@@ -27,5 +29,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     console.error("Could not record quiz answer.", error);
     return errorResponse("The answer could not be submitted.", 502);
   }
-  return NextResponse.json({ correct: data === true });
+  const result = Array.isArray(data) ? data[0] : data;
+  return NextResponse.json({ correct: result?.correct === true, explanation: result?.explanation ?? "" });
 }

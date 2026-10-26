@@ -69,6 +69,7 @@ type StudyQuestion = {
   chapter: string;
   prompt: string;
   options: string[];
+  sample?: boolean;
 };
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
@@ -231,9 +232,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [quizSelectedAnswer, setQuizSelectedAnswer] = useState("");
   const [quizLastAnswerCorrect, setQuizLastAnswerCorrect] = useState(false);
   const [liveQuestions, setLiveQuestions] = useState<StudyQuestion[]>([]);
+  const [quizAttemptId, setQuizAttemptId] = useState("");
+  const [quizTimeRemaining, setQuizTimeRemaining] = useState<number | null>(null);
+  const [quizCompleted, setQuizCompleted] = useState(false);
   const [announcements, setAnnouncements] = useState<CourseAnnouncement[]>([]);
   const [examDates, setExamDates] = useState<CourseExam[]>([]);
-  const [quizMode, setQuizMode] = useState("Standard");
+  const [quizMode, setQuizMode] = useState("standard");
   const [flashcardSide, setFlashcardSide] = useState(false);
   const [flashcardRating, setFlashcardRating] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
@@ -294,7 +298,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         setSavedNotes(activity.bookmarks);
         setHelpfulNotes(activity.helpful);
         setReportedNotes(activity.reported);
-        const quizData = await requestJson<{ questions: Array<{ id: string; subject: string; quiz_title: string; chapter: string; prompt: string; options: string[] }> }>("/api/quizzes");
+        const quizData = await requestJson<{ questions: Array<{ id: string; subject: string; quiz_title: string; chapter: string; prompt: string; options: string[]; sample: boolean }> }>("/api/quizzes");
         if (cancelled) return;
         setLiveQuestions(quizData.questions.map((question) => ({
           id: question.id,
@@ -302,7 +306,18 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           chapter: `${question.quiz_title} · ${question.chapter}`,
           prompt: question.prompt,
           options: question.options,
+          sample: question.sample,
         })));
+        if (quizData.questions.length) {
+          const attempt = await requestJson<{ attemptId: string; timeLimitSeconds: number | null }>("/api/quizzes/attempts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "standard" }),
+          });
+          if (cancelled) return;
+          setQuizAttemptId(attempt.attemptId);
+          setQuizTimeRemaining(attempt.timeLimitSeconds);
+        }
         const courseData = await requestJson<{ announcements: CourseAnnouncement[]; exams: CourseExam[] }>("/api/course-content");
         if (cancelled) return;
         setAnnouncements(courseData.announcements);
@@ -420,6 +435,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }, [intro]);
 
   useEffect(() => {
+    if (quizTimeRemaining === null || quizTimeRemaining <= 0) return;
+    const timer = window.setInterval(() => setQuizTimeRemaining((remaining) => remaining === null ? null : Math.max(0, remaining - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [quizTimeRemaining]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timer);
@@ -428,9 +449,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const approvedNotes = useMemo(() => notes.filter((note) => note.status === "approved"), [notes]);
   const pendingNotes = useMemo(() => notes.filter((note) => note.status === "pending"), [notes]);
   const activeBook = books.find((book) => book.id === activeBookId);
-  const quizQuestions = authenticatedUser && liveQuestions.length > 0 ? liveQuestions : sampleQuestions;
-  const currentQuestion = quizQuestions[questionIndex % quizQuestions.length];
-  const sampleQuestionActive = !authenticatedUser || liveQuestions.length === 0;
+  const quizQuestions = preview || !authenticatedUser ? sampleQuestions : liveQuestions;
+  const currentQuestion = quizQuestions.length ? quizQuestions[questionIndex % quizQuestions.length] : null;
+  const sampleQuestionActive = preview || !authenticatedUser || Boolean(currentQuestion?.sample);
 
   function displayLoginError(message: string) {
     setLoginError(message);
@@ -609,20 +630,25 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     openToast(preview ? "Preview member access changed in memory only." : "Member access updated.");
   }
   async function answerQuiz(answer: string) {
-    if (quizAnswered) return;
+    if (quizAnswered || !currentQuestion) return;
+    if (quizTimeRemaining === 0) return openToast("The timed quiz has expired.");
     const selectedIndex = currentQuestion.options.indexOf(answer);
     try {
-      const result = authenticatedUser && !sampleQuestionActive && currentQuestion.id
-        ? await requestJson<{ correct: boolean }>(`/api/quizzes/${encodeURIComponent(currentQuestion.id)}/answer`, {
+      let result: { correct: boolean };
+      if (authenticatedUser && !preview) {
+        if (!quizAttemptId || !currentQuestion.id) return openToast("Start a quiz attempt before answering.");
+        result = await requestJson<{ correct: boolean }>(`/api/quizzes/${encodeURIComponent(currentQuestion.id)}/answer`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ selectedIndex }),
-        })
-        : await requestJson<{ correct: boolean }>("/api/sample-quizzes/answer", {
+          body: JSON.stringify({ selectedIndex, attemptId: quizAttemptId }),
+        });
+      } else {
+        result = await requestJson<{ correct: boolean }>("/api/sample-quizzes/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ questionIndex: questionIndex % sampleQuestions.length, selectedIndex }),
         });
+      }
       setQuizAnswered(true);
       setQuizSelectedAnswer(answer);
       setQuizLastAnswerCorrect(result.correct);
@@ -635,7 +661,54 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       openToast(error instanceof Error ? error.message : "Your answer could not be checked.");
     }
   }
+  async function changeQuizMode(mode: string) {
+    setQuizMode(mode);
+    setQuizAttemptId("");
+    setQuizTimeRemaining(null);
+    setQuestionIndex(0);
+    setQuizScore(0);
+    setQuizAnswered(false);
+    setQuizSelectedAnswer("");
+    setQuizLastAnswerCorrect(false);
+    setQuizCompleted(false);
+    setLiveQuestions([]);
+    if (preview || !authenticatedUser) return;
+    try {
+      const questions = await requestJson<{ questions: Array<{ id: string; subject: string; quiz_title: string; chapter: string; prompt: string; options: string[]; sample: boolean }> }>(`/api/quizzes?mode=${encodeURIComponent(mode)}`);
+      const mapped = questions.questions.map((question) => ({
+        id: question.id,
+        subject: question.subject,
+        chapter: `${question.quiz_title} · ${question.chapter}`,
+        prompt: question.prompt,
+        options: question.options,
+        sample: question.sample,
+      }));
+      setLiveQuestions(mapped);
+      if (!mapped.length) return;
+      const attempt = await requestJson<{ attemptId: string; timeLimitSeconds: number | null }>("/api/quizzes/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      setQuizAttemptId(attempt.attemptId);
+      setQuizTimeRemaining(attempt.timeLimitSeconds);
+    } catch (error) {
+      openToast(error instanceof Error ? error.message : "The quiz mode could not be started.");
+    }
+  }
   function nextQuestion() {
+    if (questionIndex === quizQuestions.length - 1) {
+      if (quizAttemptId) {
+        void requestJson<{ ok: boolean }>("/api/quizzes/attempts", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attemptId: quizAttemptId }),
+        }).catch((error: unknown) => openToast(error instanceof Error ? error.message : "The quiz attempt could not be completed."));
+        setQuizAttemptId("");
+      }
+      setQuizCompleted(true);
+      return;
+    }
     setQuestionIndex((index) => index + 1);
     setQuizAnswered(false);
     setQuizSelectedAnswer("");
@@ -987,6 +1060,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                 {page === "quiz" && <QuizPage
                   question={currentQuestion}
                   sample={sampleQuestionActive}
+                  completed={quizCompleted}
                   index={questionIndex}
                   score={quizScore}
                   total={quizQuestions.length}
@@ -994,7 +1068,6 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   selectedAnswer={quizSelectedAnswer}
                   lastAnswerCorrect={quizLastAnswerCorrect}
                   mode={quizMode}
-                  onMode={setQuizMode}
                   onAnswer={answerQuiz}
                   onNext={nextQuestion}
                   flashcardSide={flashcardSide}
@@ -1003,6 +1076,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   onRate={(rating) => { setFlashcardRating(rating); setFlashcardSide(false); openToast(`Sample flashcard scheduled: ${rating}.`); }}
                   itemVariants={itemVariants}
                   motionEnabled={motionEnabled}
+                  onMode={changeQuizMode}
+                  timeRemaining={quizTimeRemaining}
+                  preview={preview}
+                  onRestart={() => void changeQuizMode(quizMode)}
                 />}
                 {page === "books" && <BooksPage books={books} canManage={preview || authenticatedUser?.role === "developer"} onEdit={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }} itemVariants={itemVariants} motionEnabled={motionEnabled} />}
                 {page === "developer" && (preview || authenticatedUser?.role === "developer") && <DeveloperDesk
@@ -1228,27 +1305,29 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
   </motion.div>;
 }
 
-function QuizPage({ question, sample, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants, motionEnabled }: {
-  question: StudyQuestion; sample: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants; motionEnabled: boolean;
+function QuizPage({ question, sample, completed, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants, motionEnabled, timeRemaining, preview, onRestart }: {
+  question: StudyQuestion | null; sample: boolean; completed: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants; motionEnabled: boolean; timeRemaining: number | null; preview: boolean; onRestart: () => void;
 }) {
-  const questionNumber = (index % total) + 1;
+  const questionNumber = total ? (index % total) + 1 : 0;
   return <motion.div variants={itemVariants}>
-    <PageHeading eyebrow="Active recall" title="Quizzes & study" description="Short, clearly labeled sample questions—practice content, not faculty-reviewed assessment." />
-    <div className="notice"><strong>{sample ? "Sample — not yet faculty reviewed." : "Faculty-approved practice."}</strong> {sample ? "Replace these example questions with instructor-checked material before academic use." : "The correct answer is checked securely after submission."}</div>
-    <div className="toolbar"><label className="search-control"><span aria-hidden="true">✳</span><select aria-label="Quiz mode" value={mode} onChange={(event) => onMode(event.target.value)}>{["Standard", "Timed practice", "Daily challenge", "Review mistakes"].map((item) => <option key={item}>{item}</option>)}</select></label><select aria-label="Quiz subject" defaultValue="All subjects"><option>All subjects</option>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select></div>
+    <PageHeading eyebrow="Active recall" title="Quizzes & study" description="Practice questions organized by subject and chapter, with server-checked answers." />
+    <div className="notice"><strong>{sample ? "Sample — not yet faculty reviewed." : "Published practice content."}</strong> {sample ? "Replace these example questions with instructor-checked material before academic use." : "The correct answer is checked securely after submission."}</div>
+    <div className="toolbar"><label className="search-control"><span aria-hidden="true">✳</span><select aria-label="Quiz mode" value={mode} onChange={(event) => onMode(event.target.value)}><option value="standard">Standard</option><option value="timed">Timed practice</option><option value="daily-challenge">Daily challenge</option><option value="review-mistakes">Review my mistakes</option></select></label><select aria-label="Quiz subject" defaultValue="All subjects"><option>All subjects</option>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select></div>
+    {completed ? <section className="panel quiz-completion" aria-live="polite"><span className="chip">Practice complete</span><h2>Session complete</h2><p>You answered {score} of {total} questions correctly.</p><button className="button-primary" type="button" onClick={onRestart}>Practice again</button></section>
+      : !question ? <EmptyState>{preview ? "No preview questions are available." : "No published questions are available for this mode yet."}</EmptyState> : <>
     <div className="quiz-layout">
-      <section className="quiz-card"><div className="quiz-top"><span>{question.subject} · {question.chapter}</span><span>Question {questionNumber} of {total}</span></div>
+      <section className="quiz-card"><div className="quiz-top"><span>{question.subject} · {question.chapter}</span><span>{timeRemaining === null ? "" : `Time left ${Math.floor(timeRemaining / 60).toString().padStart(2, "0")}:${(timeRemaining % 60).toString().padStart(2, "0")} · `}Question {questionNumber} of {total}</span></div>
         <div className="progress-track"><motion.span initial={motionEnabled ? { scaleX: 0 } : { scaleX: questionNumber / total }} animate={motionEnabled ? { scaleX: questionNumber / total } : undefined} transition={{ duration: .45 }} style={{ transformOrigin: "left" }} /></div>
         <h2>{question.prompt}</h2>
         <div className="quiz-options">{question.options.map((option) => {
           const state = answered && option === selectedAnswer ? lastAnswerCorrect ? "correct" : "incorrect" : "";
-          return <button className="quiz-option" key={option} type="button" disabled={answered} data-state={state} onClick={() => onAnswer(option)}>{option}</button>;
+          return <button className="quiz-option" key={option} type="button" disabled={answered || timeRemaining === 0} data-state={state} onClick={() => onAnswer(option)}>{option}</button>;
         })}</div>
         <div role="status" aria-live="polite" style={{ minHeight: "1.4rem", marginTop: ".7rem", color: answered ? "var(--color-lime)" : "var(--color-muted)", fontSize: ".68rem" }}>{answered ? lastAnswerCorrect ? "Correct answer." : "That answer is not correct. Review the material and try the next question." : ""}</div>
         {answered && <button className="button-primary" type="button" onClick={onNext}>Next question →</button>}
       </section>
-      <aside className="panel"><div className="panel-header"><div><h2>Your practice session</h2><p>Progress is not saved in the preview.</p></div><span className="chip">{mode}</span></div>
-        <div className="score-grid"><div className="score-tile"><strong>{score}</strong><small>Correct in preview</small></div><div className="score-tile"><strong>{total}</strong><small>Sample questions</small></div></div>
+      <aside className="panel"><div className="panel-header"><div><h2>Your practice session</h2><p>{preview ? "Progress is not saved in the preview." : "Attempts are saved to your account."}</p></div><span className="chip">{mode.replaceAll("-", " ")}</span></div>
+        <div className="score-grid"><div className="score-tile"><strong>{score}</strong><small>{preview ? "Correct in preview" : "Correct answers"}</small></div><div className="score-tile"><strong>{total}</strong><small>{preview ? "Sample questions" : "Questions in this mode"}</small></div></div>
         <div className="section-heading"><h2>Study flashcard</h2></div>
         <button className="flashcard" type="button" data-flipped={flashcardSide} onClick={onFlip} aria-label="Flip sample flashcard">
           <span className="flashcard-inner"><span className="flashcard-face"><span className="chip">Sample prompt</span><strong>{flashcardSide ? "Tap to show prompt" : "What should you do before learning an unfamiliar textbook chapter?"}</strong><small>Tap to flip</small></span><span className="flashcard-face back"><span className="chip">Sample reflection</span><strong>{flashcardSide ? "Preview the learning objective, then note unfamiliar terms." : "Answer hidden"}</strong><small>Practice only</small></span></span>
@@ -1257,6 +1336,7 @@ function QuizPage({ question, sample, index, score, total, answered, selectedAns
         <p>{flashcardRating ? `Last preview rating: ${flashcardRating}.` : "Spaced repetition scheduling will require a real user profile."}</p>
       </aside>
     </div>
+    </>}
   </motion.div>;
 }
 

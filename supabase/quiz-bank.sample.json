@@ -1,0 +1,89 @@
+{
+  "quizzes": [
+    {
+      "quizKey": "semester-1-physiology-sample-v1",
+      "subjectSlug": "physiology",
+      "title": "Physiology Sample Questions",
+      "description": "Sample practice questions, not yet faculty reviewed.",
+      "isSample": true,
+      "questions": [
+        {
+          "key": "sample-homeostasis",
+          "chapter": "Homeostasis · sample",
+          "prompt": "Which term describes maintaining a relatively stable internal environment?",
+          "choices": ["Homeostasis", "Metabolism", "Diffusion", "Filtration"],
+          "correctIndex": 0,
+          "explanation": "Sample answer for practice; confirm this question with faculty."
+        }
+      ]
+    },
+    {
+      "quizKey": "semester-1-organic-chemistry-sample-v1",
+      "subjectSlug": "organic-chemistry",
+      "title": "Organic Chemistry Sample Questions",
+      "description": "Sample practice questions, not yet faculty reviewed.",
+      "isSample": true,
+      "questions": [
+        {
+          "key": "sample-carbon-bonds",
+          "chapter": "Bonding · sample",
+          "prompt": "How many covalent bonds does a neutral carbon atom commonly form?",
+          "choices": ["Two", "Three", "Four", "Five"],
+          "correctIndex": 2,
+          "explanation": "Sample answer for practice; confirm this question with faculty."
+        }
+      ]
+    },
+    {
+      "quizKey": "semester-1-physical-pharmacy-sample-v1",
+      "subjectSlug": "physical-pharmacy",
+      "title": "Physical Pharmacy Sample Questions",
+      "description": "Sample practice questions, not yet faculty reviewed.",
+      "isSample": true,
+      "questions": [
+        {
+          "key": "sample-concentration",
+          "chapter": "Solutions · sample",
+          "prompt": "Which term describes the amount of solute in a defined quantity of solution?",
+          "choices": ["Concentration", "Filtration", "Adsorption", "Sublimation"],
+          "correctIndex": 0,
+          "explanation": "Sample answer for practice; confirm this question with faculty."
+        }
+      ]
+    },
+    {
+      "quizKey": "semester-1-biochemistry-sample-v1",
+      "subjectSlug": "biochemistry",
+      "title": "Biochemistry Sample Questions",
+      "description": "Sample practice questions, not yet faculty reviewed.",
+      "isSample": true,
+      "questions": [
+        {
+          "key": "sample-glucose-class",
+          "chapter": "Biomolecules · sample",
+          "prompt": "Which class includes glucose, a commonly used cellular fuel?",
+          "choices": ["Carbohydrates", "Nucleic acids", "Steroids", "Minerals"],
+          "correctIndex": 0,
+          "explanation": "Sample answer for practice; confirm this question with faculty."
+        }
+      ]
+    },
+    {
+      "quizKey": "semester-1-english-sample-v1",
+      "subjectSlug": "english",
+      "title": "English Sample Questions",
+      "description": "Sample practice questions, not yet faculty reviewed.",
+      "isSample": true,
+      "questions": [
+        {
+          "key": "sample-topic-sentence",
+          "chapter": "Paragraphs · sample",
+          "prompt": "What does a topic sentence usually introduce?",
+          "choices": ["The paragraph's main idea", "A reference list", "A new chapter", "A page number"],
+          "correctIndex": 0,
+          "explanation": "Sample answer for practice; confirm this question with faculty."
+        }
+      ]
+    }
+  ]
+}

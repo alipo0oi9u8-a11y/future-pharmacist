@@ -15,8 +15,10 @@ RLS is enabled on every application table by the initial migration. The security
 | `bookmarks` | A user may read and manage their own bookmarks for approved notes. |
 | `quizzes` | Active users read published quizzes; only the developer can create or update quiz metadata. |
 | `quiz_questions` | The developer can read moderation data. A contributor with explicit quiz permission can insert pending questions only. There is no client update/delete grant. |
-| `quiz_questions_public` | Authenticated clients read published, approved question prompts/options only. Correct answer indices and explanations are not exposed. |
-| `quiz_attempt_answers` | Users read only their own attempts; answers are created by the server-checked quiz RPC. |
+| `quiz_choices` | Authenticated users can select only choice text for published, approved questions. Column privileges and the policy helper exclude the `is_correct` field. |
+| `quiz_questions_public` | Authenticated clients read published, approved question prompts/options and the sample label only. Correct answer indices and explanations are not exposed. |
+| `quiz_attempts` | Users read only their own attempt metadata; the developer can read attempts for support. Server RPCs create and complete rows. |
+| `quiz_attempt_answers` | Users read only their own answer records; answers are created by the owner-checked server quiz RPC and linked to a quiz attempt. |
 | `user_progress` | Users read only their own progress. The quiz-answer RPC updates XP/streaks; no authenticated write grant is given. |
 | `badges` / `user_badges` | Active users read active definitions; users read only their own awards. No client write grant is given. |
 | `announcements` | Active users read published announcements; only the developer can manage them. |

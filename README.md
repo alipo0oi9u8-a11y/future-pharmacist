@@ -45,6 +45,8 @@ The script sends an invitation to the single `DEVELOPER_EMAIL`, then calls the s
 - Keep Supabase Auth public sign-up disabled. Invited members accept their email invitation through `/auth/callback`.
 - The developer desk uses trusted server routes and Supabase Admin API for invitations; roles and contribution grants are written through guarded RPC functions.
 - Contributors can submit pending notes only. Only the developer can approve or reject them; rejected notes require a reason. Ordinary users read approved content only.
+- Quiz questions and normalized choice rows are stored in Supabase. The client receives prompts and choice text only; authenticated answer submissions are checked and recorded by an RPC. Add questions with the database fields `chapter`, `prompt`, `options`, and `answer_index`; the migration synchronizes normalized choices. Attempts have a per-user owner policy.
+- After applying the current migrations, an owner may import the included explicitly labeled sample bank with `npm run import:sample-quiz-bank`. It reads `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `DEVELOPER_EMAIL` from `web/.env.local`; the script verifies the active developer profile, validates field limits, and must only be run in a trusted local environment. Do not expose or commit the service key.
 - RLS behavior and the purpose of each policy are documented in [supabase/RLS.md](./supabase/RLS.md).
 - Notes use a Google Docs URL; the document owner must grant readers access. A URL is not guaranteed permanent, valid, or readable.
 - Book cover files are restricted to JPEG, PNG, or WebP, 5 MiB maximum, and stored in the controlled `book-covers` bucket.
