@@ -1753,8 +1753,16 @@ function BooksPage({ books, canManage, onEdit, itemVariants, motionEnabled }: { 
 function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { className?: string; imageRef?: Ref<HTMLImageElement>; reduceMotion: boolean; pageVisible: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [orientationEnabled, setOrientationEnabled] = useState(false);
+  const [logoBurst, setLogoBurst] = useState(false);
+  const clickCount = useRef(0);
+  const lastCelebration = useRef(0);
+  const burstTimer = useRef<number | null>(null);
   const lowPower = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
   const motionOff = reduceMotion || !pageVisible;
+
+  useEffect(() => () => {
+    if (burstTimer.current !== null) window.clearTimeout(burstTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!orientationEnabled || motionOff) return;
@@ -1801,30 +1809,72 @@ function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { cl
     event.currentTarget.style.setProperty("--tilt-y", "0deg");
   }
 
+  function triggerLogoEffect(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (motionOff) return;
+    setLogoBurst(true);
+    if (burstTimer.current !== null) window.clearTimeout(burstTimer.current);
+    burstTimer.current = window.setTimeout(() => setLogoBurst(false), 720);
+    clickCount.current += 1;
+    if (clickCount.current < 5 || Date.now() - lastCelebration.current < 15_000) return;
+    clickCount.current = 0;
+    lastCelebration.current = Date.now();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    void confetti({
+      particleCount: lowPower ? 20 : 40,
+      spread: 68,
+      startVelocity: 22,
+      origin: {
+        x: (bounds.left + bounds.width / 2) / window.innerWidth,
+        y: (bounds.top + bounds.height / 2) / window.innerHeight,
+      },
+      colors: ["#167746", "#286c43", "#f2b01e", "#f4f1e8"],
+      disableForReducedMotion: true,
+    });
+  }
+
   return (
     <div
       ref={stageRef}
       className={`logo-stage ${className} ${pageVisible ? "" : "is-tab-hidden"}`}
       data-layered-logo-mode={LAYERED_LOGO_MODE ? "on" : "off"}
       data-low-power={lowPower ? "true" : "false"}
+      data-motion={motionOff ? "off" : "on"}
+      data-burst={logoBurst ? "true" : "false"}
       aria-label="Future Pharmacists supplied logo"
       onPointerMove={handlePointerMove}
       onPointerLeave={resetTilt}
     >
-      <Image ref={imageRef} className="logo-stage-image" src={logoPath} width={330} height={330} priority alt="" />
+      <div className="logo-ripples" aria-hidden="true">{[0, 1, 2, 3].map((ripple) => <span key={ripple} style={{ "--ripple-index": ripple } as CSSProperties} />)}</div>
+      <div className="logo-orbits-back" aria-hidden="true">
+        {logoDecorations.slice(0, 4).map((decoration) => <span key={decoration} data-shape={decoration % 4 === 0 ? "capsule" : decoration % 4 === 1 ? "leaf" : decoration % 4 === 2 ? "sparkle" : "molecule"} style={logoOrbitStyle(decoration)} />)}
+      </div>
+      <button className="logo-image-button" type="button" aria-label="Animate the Future Pharmacists logo" onClick={triggerLogoEffect}>
+        <Image ref={imageRef} className="logo-stage-image" src={logoPath} width={330} height={330} priority alt="" />
+      </button>
       <div className="logo-book-shine" aria-hidden="true">
         <Image src={logoPath} width={330} height={330} alt="" />
         <span />
       </div>
+      <div className="logo-full-shine" aria-hidden="true" />
       <svg className="logo-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
       <div className="logo-decorations" aria-hidden="true">
-        {logoDecorations.map((decoration) => <span key={decoration} data-shape={decoration % 3 === 0 ? "capsule" : decoration % 3 === 1 ? "leaf" : "sparkle"} />)}
+        {logoDecorations.slice(4).map((decoration) => <span key={decoration} data-shape={decoration % 4 === 0 ? "capsule" : decoration % 4 === 1 ? "leaf" : decoration % 4 === 2 ? "sparkle" : "molecule"} style={logoOrbitStyle(decoration)} />)}
       </div>
       <button className="orientation-tilt-button" type="button" onClick={() => void enableOrientationTilt()}>
         {orientationEnabled ? "Motion tilt enabled" : "Enable motion tilt"}
       </button>
     </div>
   );
+}
+
+function logoOrbitStyle(index: number): CSSProperties {
+  return {
+    "--orbit-radius": `${34 + (index % 4) * 5}%`,
+    "--orbit-duration": `${11 + (index % 5) * 1.8}s`,
+    "--orbit-delay": `${-index * 1.15}s`,
+    "--orbit-start": `${index * 29}deg`,
+    "--orbit-scale": index % 2 === 0 ? ".85" : "1.1",
+  } as CSSProperties;
 }
 
 function DeveloperDesk({ preview, pendingNotes, reports, analytics, members, books, auditEntries, onReview, onBulkReview, onToast, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
