@@ -276,6 +276,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .hero-copy h1 { margin: .55rem 0; font-size: clamp(1.7rem, 4vw, 3rem); letter-spacing: -.065em; line-height: 1.08; }
 .hero-copy p { max-width: 38rem; margin: 0 0 1.1rem; color: var(--color-muted); font-size: .78rem; }
 .hero-logo { position: relative; z-index: 1; width: clamp(5rem, 12vw, 9.7rem); aspect-ratio: 1; flex: 0 0 auto; border: 2px solid rgb(182 255 122 / 55%); border-radius: 50%; object-fit: cover; box-shadow: var(--shadow-glow); animation: logo-float 6s ease-in-out infinite; }
+[data-theme="light"] .brand-logo, [data-theme="light"] .hero-logo, [data-theme="light"] .mobile-brand img { box-shadow: 0 .45rem 1.5rem rgb(11 52 40 / 20%), 0 0 1.4rem rgb(22 119 70 / 12%); }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7rem; margin-top: .8rem; }
 .stat-card, .panel, .subject-card, .note-card, .book-card, .quiz-card, .flashcard, .management-card {
   border: 1px solid var(--color-line);

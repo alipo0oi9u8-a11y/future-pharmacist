@@ -13,9 +13,18 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Future Pharmacists", statusBarStyle: "black-translucent" },
 };
 
+const themeBootstrap = `try {
+  const saved = localStorage.getItem("fp-theme-v1");
+  if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
+} catch {}
+`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+      </head>
       <body>{children}</body>
     </html>
   );

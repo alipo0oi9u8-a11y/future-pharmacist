@@ -31,8 +31,8 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-const dark = blockFor(":root");
-const light = blockFor('[data-theme="light"]');
+const light = blockFor(":root");
+const dark = blockFor('[data-theme="dark"]');
 const subjectTokens = [
   "subject-physiology",
   "subject-organic",

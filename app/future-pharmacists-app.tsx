@@ -260,10 +260,14 @@ const subscribeToTheme = (callback: () => void) => {
   window.addEventListener(themeChangeEvent, callback);
   return () => window.removeEventListener(themeChangeEvent, callback);
 };
-const getThemeSnapshot = (): "dark" | "light" => localStorage.getItem("fp-theme-v1") === "light" ? "light" : "dark";
-const getServerThemeSnapshot = (): "dark" | "light" => "dark";
+const getThemeSnapshot = (): "dark" | "light" => {
+  const saved = localStorage.getItem("fp-theme-v1");
+  return saved === "dark" ? "dark" : "light";
+};
+const getServerThemeSnapshot = (): "dark" | "light" => "light";
 const setStoredTheme = (theme: "dark" | "light") => {
   localStorage.setItem("fp-theme-v1", theme);
+  document.documentElement.dataset.theme = theme;
   window.dispatchEvent(new Event(themeChangeEvent));
 };
 const subjectColor = (name: string) => subjects.find((subject) => subject.name === name)?.color ?? "var(--color-ring)";
