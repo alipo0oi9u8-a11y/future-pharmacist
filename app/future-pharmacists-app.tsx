@@ -116,6 +116,7 @@ type DeveloperAnalytics = {
   popularSubjects: Array<{ subject: string; helpfulReactions: number }>;
   pendingQueueAgeMinutes: number;
 };
+type ActionBurst = { id: number; x: number; y: number; xPercent: number; yPercent: number; count: number; distance: number };
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -327,6 +328,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [loginPending, setLoginPending] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [loginFlight, setLoginFlight] = useState<{ top: number; left: number; width: number; height: number; x: number; y: number; scale: number } | null>(null);
+  const [actionBurst, setActionBurst] = useState<ActionBurst | null>(null);
+  const actionBurstId = useRef(0);
+  const actionBurstTimer = useRef<number | null>(null);
   const loginLogoRef = useRef<HTMLImageElement>(null);
   const [pageVisible, setPageVisible] = useState(true);
   const lowPowerDevice = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
@@ -369,6 +373,37 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [noteFormError, setNoteFormError] = useState("");
   const [modalError, setModalError] = useState("");
   const [auditEntries, setAuditEntries] = useState<string[]>(authenticatedUser ? [] : ["Developer preview started", "Sample notes loaded for visual preview"]);
+
+  useEffect(() => () => {
+    if (actionBurstTimer.current !== null) window.clearTimeout(actionBurstTimer.current);
+  }, []);
+
+  useEffect(() => {
+    if (!motionEnabled) return;
+    const timers = new Map<HTMLButtonElement, number>();
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const button = event.target.closest<HTMLButtonElement>("button.button-primary, button.button-secondary");
+      if (!button || button.disabled) return;
+      const bounds = button.getBoundingClientRect();
+      button.style.setProperty("--ripple-x", `${event.clientX - bounds.left}px`);
+      button.style.setProperty("--ripple-y", `${event.clientY - bounds.top}px`);
+      button.dataset.pressing = "true";
+      const oldTimer = timers.get(button);
+      if (oldTimer !== undefined) window.clearTimeout(oldTimer);
+      timers.set(button, window.setTimeout(() => {
+        delete button.dataset.pressing;
+        delete button.dataset.rippleActive;
+        timers.delete(button);
+      }, 540));
+      button.dataset.rippleActive = "true";
+    };
+    document.addEventListener("pointerdown", handlePointerDown, { passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      for (const timer of timers.values()) window.clearTimeout(timer);
+    };
+  }, [motionEnabled]);
 
   useEffect(() => {
     if (!authenticatedUser) return;
@@ -639,6 +674,22 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   function openToast(message: string) {
     setToast(message);
   }
+  function triggerActionBurst(bounds: DOMRect) {
+    if (!motionEnabled) return;
+    const mobile = window.matchMedia("(max-width: 760px)").matches;
+    const count = mobile ? 12 : lowPowerDevice ? 10 : 24;
+    setActionBurst({
+      id: ++actionBurstId.current,
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+      xPercent: (bounds.left + bounds.width / 2) / window.innerWidth * 100,
+      yPercent: (bounds.top + bounds.height / 2) / window.innerHeight * 100,
+      count,
+      distance: mobile ? 140 : 240,
+    });
+    if (actionBurstTimer.current !== null) window.clearTimeout(actionBurstTimer.current);
+    actionBurstTimer.current = window.setTimeout(() => setActionBurst(null), 920);
+  }
   async function markNotificationRead(id: string) {
     const notification = notifications.find((item) => item.id === id);
     if (!notification || notification.isRead) return;
@@ -714,7 +765,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       openToast(error instanceof Error ? error.message : "The weekly leaderboard could not be refreshed.");
     }
   }
-  function enterPreview() {
+  function enterPreview(event?: ReactMouseEvent<HTMLButtonElement>) {
+    if (event) triggerActionBurst(event.currentTarget.getBoundingClientRect());
     setPreview(true);
     setNotifications(previewNotifications);
     setLeaderboardEntries(previewLeaderboard);
@@ -725,7 +777,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     event.preventDefault();
     setLoginError("");
     setLoginPending(true);
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       const result = await requestJson<{ next: string }>("/api/auth/login", {
         method: "POST",
@@ -734,6 +787,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       });
       setLoginPending(false);
       setLoginSuccess(true);
+      const submitButton = formElement.querySelector<HTMLButtonElement>(".login-submit");
+      if (submitButton) triggerActionBurst(submitButton.getBoundingClientRect());
       const logo = loginLogoRef.current;
       if (motionEnabled && logo) {
         const source = logo.getBoundingClientRect();
@@ -1249,9 +1304,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
 
   if (!preview && !authenticatedUser) {
     return (
-      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"}>
+      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"} data-action-burst={actionBurst ? "true" : "false"}>
         <a className="skip-link" href="#signin">Skip to sign in</a>
         <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
+        {actionBurst && <ActionBurstOverlay key={actionBurst.id} burst={actionBurst} />}
         <section className="login-showcase" aria-label="Future Pharmacists introduction">
           <div className="brand-lockup">
             <Image className="brand-logo" src={logoPath} width={56} height={56} priority alt="Future Pharmacists supplied logo" />
@@ -1283,11 +1339,11 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             <div className="form-field"><label htmlFor="email">Email address</label><input id="email" name="email" type="email" autoComplete="username" placeholder="you@example.edu" required /></div>
             <div className="form-field"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" placeholder="Your password" required /></div>
             <p className="form-error" role="alert" aria-live="polite">{loginError}</p>
-            <button className="button-primary button-block" type="submit" disabled={loginPending || loginSuccess}>
-              {loginPending ? <><span className="button-spinner" aria-hidden="true" /> Signing in…</> : loginSuccess ? <>Signed in <span aria-hidden="true">✓</span></> : <>Sign in <span aria-hidden="true">→</span></>}
+            <button className="button-primary button-block login-submit" type="submit" disabled={loginPending || loginSuccess}>
+              {loginPending ? <><span className="button-spinner" aria-hidden="true" /> Signing in…</> : loginSuccess ? <>Signed in <svg className="button-check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-9" /></svg></> : <>Sign in <span aria-hidden="true">→</span></>}
             </button>
             <div className="demo-callout"><strong>Invited accounts only.</strong> Public registration is disabled. If Supabase is not configured, sign-in will explain that setup is required.</div>
-            <button className="button-secondary button-block" type="button" onClick={enterPreview}>Explore visual preview</button>
+            <button className="button-secondary button-block preview-burst" type="button" onClick={enterPreview}>Explore visual preview</button>
             <p className="login-footer" style={{ marginTop: "1rem", textAlign: "center" }}>Google Docs sharing access is controlled by each document owner.</p>
           </motion.form>
         </section>
@@ -1316,9 +1372,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
 
   return (
-    <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"}>
+    <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"} data-action-burst={actionBurst ? "true" : "false"}>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
+      {actionBurst && <ActionBurstOverlay key={actionBurst.id} burst={actionBurst} />}
       <div className="application">
         <aside className="sidebar">
           <div className="brand-lockup">
@@ -1624,6 +1681,26 @@ function Dashboard({ preview, gamification, notes, pendingCount, books, announce
 function AmbientBackground({ lowPower, pageVisible }: { lowPower: boolean; pageVisible: boolean }) {
   return <div className={`ambient ${pageVisible ? "" : "is-tab-hidden"}`} data-low-power={lowPower ? "true" : "false"} aria-hidden="true">
     {ambientParticleCount.map((particle) => <span className="ambient-particle" key={particle} data-shape={particle % 3 === 0 ? "capsule" : particle % 3 === 1 ? "leaf" : "molecule"} style={{ "--particle-index": particle } as CSSProperties} />)}
+  </div>;
+}
+
+function ActionBurstOverlay({ burst }: { burst: ActionBurst }) {
+  const style = {
+    "--burst-x": `${burst.x}px`,
+    "--burst-y": `${burst.y}px`,
+    "--burst-x-percent": `${burst.xPercent}%`,
+    "--burst-y-percent": `${burst.yPercent}%`,
+    "--burst-distance": `${burst.distance}px`,
+  } as CSSProperties;
+  return <div className="action-burst-overlay" style={style} aria-hidden="true">
+    <span className="action-gradient-wave" />
+    <span className="action-shockwave" />
+    {Array.from({ length: burst.count }, (_, index) => <span
+      className="action-burst-particle"
+      data-shape={index % 4 === 0 ? "capsule" : index % 4 === 1 ? "leaf" : index % 4 === 2 ? "sparkle" : "molecule"}
+      key={index}
+      style={{ "--burst-angle": `${index * (360 / burst.count)}deg`, "--burst-delay": `${index % 6 * 14}ms` } as CSSProperties}
+    />)}
   </div>;
 }
 
