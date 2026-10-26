@@ -1,0 +1,813 @@
+"use client";
+
+import confetti from "canvas-confetti";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import Image from "next/image";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { Variants } from "motion/react";
+
+type PageKey = "dashboard" | "notes" | "quiz" | "books" | "developer";
+type Role = "developer" | "teacher" | "student";
+type NoteStatus = "pending" | "approved" | "rejected";
+type Note = {
+  id: string;
+  subject: string;
+  book: string;
+  chapter: string;
+  topic: string;
+  docsUrl: string;
+  status: NoteStatus;
+  submittedBy: string;
+  createdAt: string;
+  helpful: number;
+};
+type Member = {
+  id: string;
+  name: string;
+  email: string;
+  role: Exclude<Role, "developer">;
+  canSubmit: boolean;
+  status: "invited" | "active";
+};
+type Book = {
+  id: string;
+  subject: string;
+  title: string;
+  author: string;
+  edition: string;
+  description: string;
+  price: string;
+  currency: string;
+  buyUrl: string;
+  verifiedAt: string;
+  imageName: string;
+  accent: string;
+};
+type StudyQuestion = {
+  subject: string;
+  chapter: string;
+  prompt: string;
+  options: string[];
+  answer: string;
+};
+
+const logoPath = "/assets/future-pharmacists-logo.jpeg";
+const subjects = [
+  { name: "Physiology", mark: "♡", color: "var(--subject-physiology)", book: "Course textbook not confirmed" },
+  { name: "Organic Chemistry", mark: "⌬", color: "var(--subject-organic)", book: "Course textbook not confirmed" },
+  { name: "Physical Pharmacy", mark: "⚗", color: "var(--subject-physical)", book: "Course textbook not confirmed" },
+  { name: "Biochemistry", mark: "✳", color: "var(--subject-biochemistry)", book: "Course textbook not confirmed" },
+  { name: "English", mark: "A", color: "var(--subject-english)", book: "Course resource not confirmed" },
+];
+const initialNotes: Note[] = [
+  { id: "note-1", subject: "Biochemistry", book: "Biochemistry textbook · confirm title", chapter: "Chapter 1 · Course outline to confirm", topic: "Introduction to biochemistry", docsUrl: "", status: "approved", submittedBy: "Course preview", createdAt: "2026-10-20", helpful: 8 },
+  { id: "note-2", subject: "Physiology", book: "Physiology textbook · confirm title", chapter: "Chapter 1 · Course outline to confirm", topic: "Homeostasis: sample study topic", docsUrl: "", status: "approved", submittedBy: "Course preview", createdAt: "2026-10-21", helpful: 5 },
+  { id: "note-3", subject: "Organic Chemistry", book: "Organic chemistry textbook · confirm title", chapter: "Chapter 1 · Course outline to confirm", topic: "Molecular structure: sample study topic", docsUrl: "", status: "approved", submittedBy: "Course preview", createdAt: "2026-10-22", helpful: 3 },
+  { id: "note-4", subject: "Physical Pharmacy", book: "Physical pharmacy textbook · confirm title", chapter: "Chapter 1 · Course outline to confirm", topic: "Solutions: sample study topic", docsUrl: "", status: "approved", submittedBy: "Course preview", createdAt: "2026-10-23", helpful: 4 },
+  { id: "note-5", subject: "English", book: "English resource · confirm title", chapter: "Unit 1 · Course outline to confirm", topic: "Academic reading: sample study topic", docsUrl: "", status: "approved", submittedBy: "Course preview", createdAt: "2026-10-24", helpful: 2 },
+  { id: "note-6", subject: "Biochemistry", book: "Biochemistry textbook · confirm title", chapter: "Chapter 2 · Course outline to confirm", topic: "Buffers: sample review topic", docsUrl: "", status: "pending", submittedBy: "Invited student preview", createdAt: "2026-10-25", helpful: 0 },
+];
+const initialMembers: Member[] = [
+  { id: "member-1", name: "Dr. Ayesha Khan", email: "teacher@example.edu", role: "teacher", canSubmit: true, status: "active" },
+  { id: "member-2", name: "Student Preview", email: "student@example.edu", role: "student", canSubmit: false, status: "active" },
+  { id: "member-3", name: "Invited Classmate", email: "invite@example.edu", role: "student", canSubmit: true, status: "invited" },
+];
+const initialBooks: Book[] = subjects.map((subject, index) => ({
+  id: `book-${index}`,
+  subject: subject.name,
+  title: subject.book,
+  author: "Not provided",
+  edition: "Not provided",
+  description: "Confirm the required title and edition with the current course outline or faculty.",
+  price: "",
+  currency: "",
+  buyUrl: "",
+  verifiedAt: "",
+  imageName: "",
+  accent: ["#254f6b", "#245b3f", "#633b3f", "#554072", "#273a61"][index],
+}));
+const sampleQuestions: StudyQuestion[] = [
+  { subject: "Physiology", chapter: "Homeostasis · sample", prompt: "Which term describes maintaining a relatively stable internal environment?", options: ["Homeostasis", "Metabolism", "Diffusion", "Filtration"], answer: "Homeostasis" },
+  { subject: "Organic Chemistry", chapter: "Bonding · sample", prompt: "How many covalent bonds does a neutral carbon atom commonly form?", options: ["Two", "Three", "Four", "Five"], answer: "Four" },
+  { subject: "Physical Pharmacy", chapter: "Solutions · sample", prompt: "Which term describes the amount of solute in a defined quantity of solution?", options: ["Concentration", "Filtration", "Adsorption", "Sublimation"], answer: "Concentration" },
+  { subject: "Biochemistry", chapter: "Biomolecules · sample", prompt: "Which class includes glucose, a commonly used cellular fuel?", options: ["Carbohydrates", "Nucleic acids", "Steroids", "Minerals"], answer: "Carbohydrates" },
+  { subject: "English", chapter: "Paragraphs · sample", prompt: "What does a topic sentence usually introduce?", options: ["The paragraph's main idea", "A reference list", "A new chapter", "A page number"], answer: "The paragraph's main idea" },
+];
+const navItems: { key: PageKey; label: string; icon: string }[] = [
+  { key: "dashboard", label: "Dashboard", icon: "⌂" },
+  { key: "notes", label: "Notes library", icon: "▤" },
+  { key: "quiz", label: "Quizzes & study", icon: "✳" },
+  { key: "books", label: "Books & resources", icon: "▣" },
+];
+const pageTitle: Record<PageKey, string> = {
+  dashboard: "Dashboard",
+  notes: "Notes library",
+  quiz: "Quizzes & study",
+  books: "Books & resources",
+  developer: "Developer desk",
+};
+const themeChangeEvent = "future-pharmacists-theme-change";
+const subscribeToTheme = (callback: () => void) => {
+  window.addEventListener(themeChangeEvent, callback);
+  return () => window.removeEventListener(themeChangeEvent, callback);
+};
+const getThemeSnapshot = (): "dark" | "light" => localStorage.getItem("fp-theme-v1") === "light" ? "light" : "dark";
+const getServerThemeSnapshot = (): "dark" | "light" => "dark";
+const setStoredTheme = (theme: "dark" | "light") => {
+  localStorage.setItem("fp-theme-v1", theme);
+  window.dispatchEvent(new Event(themeChangeEvent));
+};
+const subjectColor = (name: string) => subjects.find((subject) => subject.name === name)?.color ?? "var(--color-ring)";
+const initials = (name: string) => name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+const isGoogleDocsUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "docs.google.com" && /^\/document\/d\/[^/]+/.test(url.pathname);
+  } catch {
+    return false;
+  }
+};
+const isHttpsUrl = (value: string) => {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+export default function FuturePharmacistsApp() {
+  const reduceMotion = useReducedMotion();
+  const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
+  const [page, setPage] = useState<PageKey>("dashboard");
+  const [preview, setPreview] = useState(false);
+  const [intro, setIntro] = useState(false);
+  const [introReady, setIntroReady] = useState(false);
+  const [reduceAnimations, setReduceAnimations] = useState(false);
+  const [notes, setNotes] = useState(initialNotes);
+  const [members, setMembers] = useState(initialMembers);
+  const [books, setBooks] = useState(initialBooks);
+  const [query, setQuery] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("All subjects");
+  const [bookFilter, setBookFilter] = useState("All books");
+  const [chapterFilter, setChapterFilter] = useState("All chapters");
+  const [savedNotes, setSavedNotes] = useState<string[]>([]);
+  const [helpfulNotes, setHelpfulNotes] = useState<string[]>([]);
+  const [reportedNotes, setReportedNotes] = useState<string[]>([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [quizScore, setQuizScore] = useState(0);
+  const [quizAnswered, setQuizAnswered] = useState(false);
+  const [quizMode, setQuizMode] = useState("Standard");
+  const [flashcardSide, setFlashcardSide] = useState(false);
+  const [flashcardRating, setFlashcardRating] = useState("");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [noticeCount, setNoticeCount] = useState(2);
+  const [leaderboardOptIn, setLeaderboardOptIn] = useState(false);
+  const [toast, setToast] = useState("");
+  const [dialog, setDialog] = useState<"note" | "invite" | "book" | "announcement" | "exam" | null>(null);
+  const [activeBookId, setActiveBookId] = useState("");
+  const [noteFormError, setNoteFormError] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [auditEntries, setAuditEntries] = useState<string[]>(["Developer preview started", "Sample notes loaded for visual preview"]);
+
+  useEffect(() => {
+    const seen = sessionStorage.getItem("fp-intro-seen-v1");
+    let endTimer: number | undefined;
+    const beginTimer = window.setTimeout(() => {
+      if (seen || reduceMotion) {
+        setIntroReady(true);
+        return;
+      }
+      setIntro(true);
+      endTimer = window.setTimeout(() => {
+        setIntro(false);
+        setIntroReady(true);
+        sessionStorage.setItem("fp-intro-seen-v1", "true");
+      }, 2500);
+    }, 0);
+    return () => {
+      window.clearTimeout(beginTimer);
+      if (endTimer) window.clearTimeout(endTimer);
+    };
+  }, [reduceMotion]);
+
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
+        setDialog(null);
+        if (intro) finishIntro();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [intro]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 3200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const approvedNotes = useMemo(() => notes.filter((note) => note.status === "approved"), [notes]);
+  const pendingNotes = useMemo(() => notes.filter((note) => note.status === "pending"), [notes]);
+  const activeBook = books.find((book) => book.id === activeBookId);
+  const currentQuestion = sampleQuestions[questionIndex % sampleQuestions.length];
+  const motionEnabled = !reduceMotion && !reduceAnimations;
+
+  function finishIntro() {
+    setIntro(false);
+    setIntroReady(true);
+    sessionStorage.setItem("fp-intro-seen-v1", "true");
+  }
+  function go(nextPage: PageKey) {
+    setPage(nextPage);
+    setCommandOpen(false);
+    window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+  }
+  function openToast(message: string) {
+    setToast(message);
+  }
+  function enterPreview() {
+    setPreview(true);
+    setPage("dashboard");
+    setAuditEntries((entries) => [`Entered visual-only developer preview`, ...entries]);
+  }
+  function attemptUnconfiguredLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    openToast("Live sign-in is unavailable until Supabase is configured. Use the clearly marked visual preview.");
+  }
+  function updateNoteStatus(id: string, status: NoteStatus) {
+    if (!preview) return openToast("Developer authentication is not configured. Review actions are preview-only.");
+    setNotes((items) => items.map((note) => note.id === id ? { ...note, status } : note));
+    setAuditEntries((entries) => [`${status === "approved" ? "Approved" : "Rejected"} sample note ${id}`, ...entries]);
+    openToast(status === "approved" ? "Preview note approved and published in this demo." : "Preview note rejected in this demo.");
+  }
+  function submitNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setNoteFormError("");
+    const form = new FormData(event.currentTarget);
+    const docsUrl = String(form.get("docsUrl") ?? "").trim();
+    if (docsUrl && !isGoogleDocsUrl(docsUrl)) {
+      setNoteFormError("Enter a valid HTTPS Google Docs document URL, or leave it empty.");
+      return;
+    }
+    const note: Note = {
+      id: crypto.randomUUID(),
+      subject: String(form.get("subject")),
+      book: String(form.get("book")).trim(),
+      chapter: String(form.get("chapter")).trim(),
+      topic: String(form.get("topic")).trim(),
+      docsUrl,
+      status: "pending",
+      submittedBy: "Developer preview",
+      createdAt: new Date().toISOString().slice(0, 10),
+      helpful: 0,
+    };
+    setNotes((items) => [note, ...items]);
+    setDialog(null);
+    go("developer");
+    openToast("Preview submission saved as pending. It is not visible in the notes library.");
+  }
+  function changePermission(id: string) {
+    setMembers((items) => items.map((member) => member.id === id ? { ...member, canSubmit: !member.canSubmit } : member));
+    setAuditEntries((entries) => [`Changed sample contribution permission for ${id}`, ...entries]);
+    openToast("Preview permission changed in memory only.");
+  }
+  function answerQuiz(answer: string) {
+    if (quizAnswered) return;
+    setQuizAnswered(true);
+    const correct = answer === currentQuestion.answer;
+    if (correct) {
+      const score = quizScore + 1;
+      setQuizScore(score);
+      if (score / sampleQuestions.length >= .8) void confetti({ particleCount: 65, spread: 58, origin: { y: .68 }, colors: ["#3dff7a", "#b6ff7a", "#f2b01e", "#f4f1e8"] });
+    }
+  }
+  function nextQuestion() {
+    setQuestionIndex((index) => index + 1);
+    setQuizAnswered(false);
+  }
+  function filteredNotes() {
+    const q = query.trim().toLowerCase();
+    return approvedNotes.filter((note) => {
+      const matchesText = [note.topic, note.subject, note.book, note.chapter].join(" ").toLowerCase().includes(q);
+      return matchesText
+        && (subjectFilter === "All subjects" || subjectFilter === note.subject)
+        && (bookFilter === "All books" || bookFilter === note.book)
+        && (chapterFilter === "All chapters" || chapterFilter === note.chapter);
+    });
+  }
+  function toggleSaved(id: string) {
+    setSavedNotes((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
+  }
+  function markHelpful(id: string) {
+    if (helpfulNotes.includes(id)) return;
+    setHelpfulNotes((items) => [...items, id]);
+    setNotes((items) => items.map((note) => note.id === id ? { ...note, helpful: note.helpful + 1 } : note));
+  }
+  function reportLink(id: string) {
+    if (reportedNotes.includes(id)) return openToast("You have already reported this sample note.");
+    setReportedNotes((items) => [...items, id]);
+    setAuditEntries((entries) => [`Reported a possible broken link for ${id}`, ...entries]);
+    openToast("Report added to the preview developer review queue.");
+  }
+  function saveBook(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeBook) return;
+    const form = new FormData(event.currentTarget);
+    const buyUrl = String(form.get("buyUrl") ?? "").trim();
+    if (buyUrl && !isHttpsUrl(buyUrl)) return setModalError("The buying link must start with HTTPS.");
+    const price = String(form.get("price") ?? "").trim();
+    const currency = String(form.get("currency") ?? "").trim();
+    const file = form.get("cover");
+    setBooks((items) => items.map((book) => book.id === activeBook.id ? {
+      ...book,
+      title: String(form.get("title")).trim(),
+      author: String(form.get("author")).trim(),
+      edition: String(form.get("edition")).trim(),
+      description: String(form.get("description")).trim(),
+      price,
+      currency,
+      buyUrl,
+      verifiedAt: String(form.get("verifiedAt") ?? ""),
+      imageName: file instanceof File && file.size ? file.name : book.imageName,
+    } : book));
+    setAuditEntries((entries) => [`Updated book listing ${activeBook.subject}`, ...entries]);
+    setDialog(null);
+    setModalError("");
+    openToast("Book changes are visible in this preview only; image upload requires Supabase Storage.");
+  }
+  function addInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email")).trim().toLowerCase();
+    if (members.some((member) => member.email.toLowerCase() === email)) {
+      setModalError("That email is already in the preview member list.");
+      return;
+    }
+    const member: Member = {
+      id: crypto.randomUUID(),
+      name: String(form.get("name")).trim(),
+      email,
+      role: String(form.get("role")) as Exclude<Role, "developer">,
+      canSubmit: form.get("canSubmit") === "on",
+      status: "invited",
+    };
+    setMembers((items) => [...items, member]);
+    setAuditEntries((entries) => [`Created local invitation preview for ${email}`, ...entries]);
+    setDialog(null);
+    setModalError("");
+    openToast("Local preview invitation created. No email was sent.");
+  }
+  function openCommand(item: { label: string; page: PageKey }) {
+    setCommandOpen(false);
+    go(item.page);
+  }
+
+  const pageVariants: Variants = reduceMotion ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0, transition: { duration: .34, ease: [.2, .75, .25, 1] as const, staggerChildren: .055 } },
+  };
+  const itemVariants: Variants = reduceMotion ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
+    initial: { opacity: 0, y: 12 },
+    animate: { opacity: 1, y: 0, transition: { duration: .35, ease: [.2, .75, .25, 1] as const } },
+  };
+
+  if (!preview) {
+    return (
+      <main className={`login-layout ${reduceAnimations ? "reduce-animation" : ""}`}>
+        <a className="skip-link" href="#signin">Skip to sign in</a>
+        <div className="ambient" aria-hidden="true" />
+        <section className="login-showcase" aria-label="Future Pharmacists introduction">
+          <div className="brand-lockup">
+            <Image className="brand-logo" src={logoPath} width={56} height={56} priority alt="Future Pharmacists supplied logo" />
+            <span>Future Pharmacists</span>
+          </div>
+          <div className="login-story">
+            <div className="eyebrow">Pharm D · Semester 1</div>
+            <h1>Learn together.<br />Grow with purpose.</h1>
+            <p>A thoughtful study space for your class: approved notes, practice, and course resources—all in one place.</p>
+            <div className="tagline" aria-label="Study, share, support, succeed"><span>Study</span><span>·</span><span>Share</span><span>·</span><span>Support</span><span>·</span><span>Succeed</span></div>
+            <div className="logo-stage" aria-label="Future Pharmacists logo animation">
+              <Image src={logoPath} width={330} height={330} priority alt="" />
+              <svg className="logo-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
+            </div>
+          </div>
+          <div className="login-footer">A shared learning space for the Pharm D cohort.</div>
+        </section>
+        <section className="login-panel" id="signin">
+          <motion.form
+            className="login-card"
+            onSubmit={attemptUnconfiguredLogin}
+            initial={reduceMotion ? false : { opacity: 0, y: 22 }}
+            animate={introReady || reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 22 }}
+            transition={{ duration: .65, delay: introReady ? .08 : 0, ease: [.2, .75, .25, 1] }}
+          >
+            <div className="eyebrow">Welcome to your study hub</div>
+            <h2>Sign in</h2>
+            <p>Use the account invited by your developer to access your class workspace.</p>
+            <div className="form-field"><label htmlFor="email">Email address</label><input id="email" name="email" type="email" autoComplete="username" placeholder="you@example.edu" required /></div>
+            <div className="form-field"><label htmlFor="password">Password</label><input id="password" name="password" type="password" autoComplete="current-password" placeholder="Your password" required /></div>
+            <p className="form-error" role="status" aria-live="polite" />
+            <button className="button-primary button-block" type="submit">Sign in <span aria-hidden="true">→</span></button>
+            <div className="demo-callout"><strong>Visual preview only.</strong> Live sign-in, invitations, and permissions are not connected yet. Preview changes are temporary and not secure.</div>
+            <button className="button-secondary button-block" type="button" onClick={enterPreview}>Explore visual preview</button>
+            <p className="login-footer" style={{ marginTop: "1rem", textAlign: "center" }}>Production authentication will use Supabase after setup.</p>
+          </motion.form>
+        </section>
+        <AnimatePresence>
+          {intro && <motion.div className="intro-overlay" initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .3 }}>
+            <div className="ambient" aria-hidden="true" />
+            <button className="button-secondary intro-skip" type="button" onClick={finishIntro}>Skip intro</button>
+            <motion.div className="intro-content" initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .94 }} transition={{ duration: .65, ease: [.2, .75, .25, 1] }}>
+              <Image src={logoPath} width={250} height={250} priority alt="Future Pharmacists supplied logo" />
+              <svg className="logo-ring intro-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="1" /></svg>
+              <div className="eyebrow">Study · Share · Support · Succeed</div>
+            </motion.div>
+          </motion.div>}
+        </AnimatePresence>
+      </main>
+    );
+  }
+
+  return (
+    <div className="app-frame" data-motion={motionEnabled ? "on" : "off"}>
+      <a className="skip-link" href="#main-content">Skip to content</a>
+      <div className="ambient" aria-hidden="true" />
+      <div className="application">
+        <aside className="sidebar">
+          <div className="brand-lockup">
+            <Image className="brand-logo" src={logoPath} width={45} height={45} alt="" />
+            <span>Future Pharmacists<span className="brand-subtitle">PHARM D · SEMESTER 1</span></span>
+          </div>
+          <div className="nav-caption">Study space</div>
+          <nav className="side-nav" aria-label="Main navigation">
+            {navItems.map((item) => <NavButton key={item.key} item={item} active={page === item.key} onClick={() => go(item.key)} />)}
+            {preview && <button className={`nav-link ${page === "developer" ? "is-active" : ""}`} type="button" aria-current={page === "developer" ? "page" : undefined} onClick={() => go("developer")}><span className="nav-symbol" aria-hidden="true">⚙</span>Developer desk</button>}
+          </nav>
+          <div className="sidebar-bottom">
+            <div className="sidebar-tip"><strong>Small steps. Strong foundations.</strong><p>Revise one useful idea at a time. Progress begins with curiosity.</p></div>
+            <div className="user-strip"><div className="avatar">FP</div><div><strong>Developer preview</strong><small>Local visual demo</small></div><button className="button-quiet" type="button" aria-label="Exit visual preview" onClick={() => setPreview(false)}>↪</button></div>
+          </div>
+        </aside>
+        <div className="workspace">
+          <header className="topbar">
+            <div className="mobile-brand"><Image src={logoPath} width={32} height={32} alt="" />Future Pharmacists</div>
+            <div className="breadcrumbs">Study space <span aria-hidden="true">/</span> <strong>{pageTitle[page]}</strong></div>
+            <div className="top-actions">
+              <span className="top-pill">Semester 1</span>
+              <button className="button-quiet" type="button" aria-label={`${noticeCount} sample notifications`} title="Sample notifications" onClick={() => { setNoticeCount(0); openToast("No new sample notifications."); }}>♧{noticeCount > 0 ? ` ${noticeCount}` : ""}</button>
+              <button className="button-quiet" type="button" aria-label="Open search" onClick={() => setCommandOpen(true)}>⌕ <kbd>Ctrl K</kbd></button>
+              <button className="button-quiet" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setStoredTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☼" : "☾"}</button>
+            </div>
+          </header>
+          <main id="main-content" className="content">
+            <AnimatePresence mode="wait">
+              <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={{ opacity: 0, y: -5, transition: { duration: .15 } }}>
+                {page === "dashboard" && <Dashboard notes={approvedNotes} pendingCount={pendingNotes.length} books={books} onNavigate={go} itemVariants={itemVariants} />}
+                {page === "notes" && <NotesPage
+                  notes={filteredNotes()}
+                  query={query}
+                  subjectFilter={subjectFilter}
+                  bookFilter={bookFilter}
+                  chapterFilter={chapterFilter}
+                  savedNotes={savedNotes}
+                  helpfulNotes={helpfulNotes}
+                  reportedNotes={reportedNotes}
+                  books={books}
+                  onQuery={setQuery}
+                  onSubject={setSubjectFilter}
+                  onBook={setBookFilter}
+                  onChapter={setChapterFilter}
+                  onSave={toggleSaved}
+                  onHelpful={markHelpful}
+                  onReport={reportLink}
+                  onOpenSubmit={() => { setNoteFormError(""); setDialog("note"); }}
+                  onPreview={() => openToast("Preview note: add and approve a real Google Docs link after Supabase is configured.")}
+                  itemVariants={itemVariants}
+                />}
+                {page === "quiz" && <QuizPage
+                  question={currentQuestion}
+                  index={questionIndex}
+                  score={quizScore}
+                  total={sampleQuestions.length}
+                  answered={quizAnswered}
+                  mode={quizMode}
+                  onMode={setQuizMode}
+                  onAnswer={answerQuiz}
+                  onNext={nextQuestion}
+                  flashcardSide={flashcardSide}
+                  onFlip={() => setFlashcardSide((flipped) => !flipped)}
+                  flashcardRating={flashcardRating}
+                  onRate={(rating) => { setFlashcardRating(rating); setFlashcardSide(false); openToast(`Sample flashcard scheduled: ${rating}.`); }}
+                  itemVariants={itemVariants}
+                />}
+                {page === "books" && <BooksPage books={books} onEdit={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }} itemVariants={itemVariants} />}
+                {page === "developer" && <DeveloperDesk
+                  preview={preview}
+                  pendingNotes={pendingNotes}
+                  members={members}
+                  books={books}
+                  auditEntries={auditEntries}
+                  onReview={updateNoteStatus}
+                  onPermission={changePermission}
+                  onInvite={() => { setModalError(""); setDialog("invite"); }}
+                  onEditBook={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }}
+                  onAnnouncement={() => { setModalError(""); setDialog("announcement"); }}
+                  onExam={() => { setModalError(""); setDialog("exam"); }}
+                  onSettings={() => { setReduceAnimations((value) => !value); openToast(reduceAnimations ? "Animations enabled." : "Reduced motion enabled."); }}
+                  reduceAnimations={reduceAnimations}
+                  onReduceAnimations={setReduceAnimations}
+                  leaderboardOptIn={leaderboardOptIn}
+                  onLeaderboard={setLeaderboardOptIn}
+                  itemVariants={itemVariants}
+                />}
+              </motion.section>
+            </AnimatePresence>
+          </main>
+        </div>
+        <nav className="mobile-nav" aria-label="Mobile navigation">
+          {navItems.map((item) => <button key={item.key} type="button" aria-current={page === item.key ? "page" : undefined} onClick={() => go(item.key)}><span aria-hidden="true">{item.icon}</span>{item.label.replace(" & resources", "").replace(" & study", "")}</button>)}
+          <button type="button" aria-current={page === "developer" ? "page" : undefined} onClick={() => go("developer")}><span aria-hidden="true">⚙</span>Manage</button>
+        </nav>
+      </div>
+      <AnimatePresence>{commandOpen && <CommandPalette query={commandQuery} setQuery={setCommandQuery} onClose={() => setCommandOpen(false)} onSelect={openCommand} />}</AnimatePresence>
+      <AnimatePresence>
+        {dialog && <Dialog title={dialogTitle(dialog, activeBook)} onClose={() => { setDialog(null); setModalError(""); }}>
+          {dialog === "note" && <form onSubmit={submitNote}>
+            <p className="notice"><strong>Preview:</strong> In the real app, permitted users can submit; only the developer can approve. This entry will be stored in memory as pending.</p>
+            <div className="form-field"><label htmlFor="note-subject">Subject</label><select id="note-subject" name="subject" required>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select></div>
+            <div className="form-field"><label htmlFor="note-book">Book name</label><input id="note-book" name="book" required maxLength={160} placeholder="Confirm the textbook name" /></div>
+            <div className="form-field"><label htmlFor="note-chapter">Chapter</label><input id="note-chapter" name="chapter" required maxLength={120} placeholder="Chapter number and title" /></div>
+            <div className="form-field"><label htmlFor="note-topic">Custom topic name</label><input id="note-topic" name="topic" required maxLength={120} placeholder="Topic title" /></div>
+            <div className="form-field"><label htmlFor="note-docs">Google Docs URL (optional)</label><input id="note-docs" name="docsUrl" type="url" placeholder="https://docs.google.com/document/d/…" /><small>Document sharing access is set by the document owner.</small></div>
+            <p className="form-error" role="alert">{noteFormError}</p><button className="button-primary" type="submit">Submit for approval</button>
+          </form>}
+          {dialog === "invite" && <form onSubmit={addInvitation}>
+            <p className="notice"><strong>Preview only:</strong> this adds a local invitation row and does not send email. Real invitations require Supabase Auth from trusted server code.</p>
+            <div className="form-field"><label htmlFor="invite-name">Full name</label><input id="invite-name" name="name" required maxLength={100} /></div>
+            <div className="form-field"><label htmlFor="invite-email">Email</label><input id="invite-email" name="email" type="email" required /></div>
+            <div className="form-field"><label htmlFor="invite-role">Role</label><select id="invite-role" name="role"><option value="student">Student</option><option value="teacher">Teacher</option></select></div>
+            <div className="settings-row"><label htmlFor="invite-can-submit">Allow note submissions</label><input id="invite-can-submit" name="canSubmit" type="checkbox" /></div>
+            <p className="form-error" role="alert">{modalError}</p><button className="button-primary" type="submit">Create preview invitation</button>
+          </form>}
+          {dialog === "book" && activeBook && <form onSubmit={saveBook}>
+            <p className="notice"><strong>Catalog preview:</strong> book images are selected as files. Secure image storage becomes available after Supabase Storage is configured.</p>
+            <div className="form-field"><label htmlFor="book-title">Resource title</label><input id="book-title" name="title" required defaultValue={activeBook.title} /></div>
+            <div className="form-field"><label htmlFor="book-author">Author</label><input id="book-author" name="author" defaultValue={activeBook.author} /></div>
+            <div className="form-field"><label htmlFor="book-edition">Edition</label><input id="book-edition" name="edition" defaultValue={activeBook.edition} /></div>
+            <div className="form-field"><label htmlFor="book-description">Description</label><textarea id="book-description" name="description" rows={3} defaultValue={activeBook.description} /></div>
+            <div className="form-field"><label htmlFor="book-price">Price</label><input id="book-price" name="price" placeholder="Not provided" defaultValue={activeBook.price} /></div>
+            <div className="form-field"><label htmlFor="book-currency">Currency</label><input id="book-currency" name="currency" placeholder="Not provided" defaultValue={activeBook.currency} /></div>
+            <div className="form-field"><label htmlFor="book-verified">Last price verification</label><input id="book-verified" name="verifiedAt" type="date" defaultValue={activeBook.verifiedAt} /></div>
+            <div className="form-field"><label htmlFor="book-buy">Buying URL (HTTPS)</label><input id="book-buy" name="buyUrl" type="url" defaultValue={activeBook.buyUrl} /></div>
+            <div className="form-field"><label htmlFor="book-cover">Cover image file</label><input id="book-cover" name="cover" type="file" accept="image/png,image/jpeg,image/webp" /><small>{activeBook.imageName ? `Current preview file: ${activeBook.imageName}` : "No cover supplied yet."}</small></div>
+            <p className="form-error" role="alert">{modalError}</p><button className="button-primary" type="submit">Save preview listing</button>
+          </form>}
+          {(dialog === "announcement" || dialog === "exam") && <form onSubmit={(event) => { event.preventDefault(); setDialog(null); openToast("Saved in this visual preview only."); }}>
+            <div className="form-field"><label htmlFor="event-title">{dialog === "exam" ? "Exam or assignment" : "Announcement title"}</label><input id="event-title" required maxLength={140} /></div>
+            <div className="form-field"><label htmlFor="event-date">Date</label><input id="event-date" type="date" /></div>
+            <div className="form-field"><label htmlFor="event-details">Details</label><textarea id="event-details" rows={3} maxLength={500} /></div>
+            <p className="form-error" role="alert">{modalError}</p><button className="button-primary" type="submit">Save preview item</button>
+          </form>}
+        </Dialog>}
+      </AnimatePresence>
+      {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
+    </div>
+  );
+}
+
+function NavButton({ item, active, onClick }: { item: { key: PageKey; label: string; icon: string }; active: boolean; onClick: () => void }) {
+  return <button className="nav-link" type="button" aria-current={active ? "page" : undefined} onClick={onClick}><span className="nav-symbol" aria-hidden="true">{item.icon}</span>{item.label}</button>;
+}
+
+function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
+  return <header className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</header>;
+}
+
+function SectionHeading({ title, detail, action }: { title: string; detail?: string; action?: ReactNode }) {
+  return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
+}
+
+function Dashboard({ notes, pendingCount, books, onNavigate, itemVariants }: { notes: Note[]; pendingCount: number; books: Book[]; onNavigate: (page: PageKey) => void; itemVariants: Variants }) {
+  const recent = notes.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3);
+  return <motion.div variants={itemVariants}>
+    <section className="hero-panel">
+      <div className="hero-copy"><div className="eyebrow">Pharm D · Semester 1</div><h1>Your next great idea starts here.</h1><p>Build strong foundations with peer-reviewed notes, focused practice, and resources your class can trust.</p><button className="button-primary" type="button" onClick={() => onNavigate("notes")}>Explore the notes library <span aria-hidden="true">→</span></button></div>
+      <Image className="hero-logo" src={logoPath} width={155} height={155} alt="Future Pharmacists supplied logo" />
+    </section>
+    <div className="stats-grid">
+      <StatCard icon="▤" value={String(notes.length)} label="Approved notes" />
+      <StatCard icon="✳" value={String(subjects.length)} label="Semester subjects" />
+      <StatCard icon="▣" value={String(books.length)} label="Book resources" />
+      <StatCard icon="◷" value="0 days" label="Study streak · preview" />
+    </div>
+    <SectionHeading title="Your five subjects" detail="Subject accents are inspired by the books in your logo." action={<button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Browse all →</button>} />
+    <div className="subject-grid">
+      {subjects.map((subject, index) => {
+        const count = notes.filter((note) => note.status === "approved" && note.subject === subject.name).length;
+        const progress = [36, 22, 48, 61, 18][index];
+        return <motion.button key={subject.name} className="subject-card" variants={itemVariants} type="button" style={{ "--accent": subject.color } as CSSProperties} onClick={() => onNavigate("notes")}>
+          <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes · sample progress {progress}%</small>
+        </motion.button>;
+      })}
+    </div>
+    <div className="dashboard-grid">
+      <section className="panel"><div className="panel-header"><div><h2>Recently approved notes</h2><p>Published content available to the cohort.</p></div><button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Library →</button></div>
+        {recent.length ? recent.map((note) => <div className="list-row" key={note.id}><span className="list-icon">{note.subject.slice(0, 3).toUpperCase()}</span><div><strong>{note.topic}</strong><small>{note.subject} · {note.chapter}</small></div></div>) : <EmptyState>No approved notes yet.</EmptyState>}
+      </section>
+      <section className="panel"><div className="panel-header"><div><h2>Study rhythm</h2><p>Small, repeatable sessions add up.</p></div><span className="chip">Preview</span></div>
+        <div className="subject-progress-row">        <span className="ring-progress" style={{ "--progress": 62 } as CSSProperties}><span>62%</span></span><div><strong>Daily study goal</strong><small>Sample progress only · no activity saved</small></div></div>
+        <div className="progress-track"><span style={{ width: "62%" }} /></div>
+        <div className="list-row"><span className="list-icon">◷</span><div><strong>Pomodoro focus timer</strong><small>Start a 25-minute study session.</small></div><Pomodoro /></div>
+        <div className="list-row"><span className="list-icon">⚑</span><div><strong>Next class deadline</strong><small>No deadline provided yet.</small></div></div>
+      </section>
+    </div>
+    <div className="dashboard-grid">
+      <section className="panel"><div className="panel-header"><div><h2>Study books</h2><p>Titles, editions, and prices need faculty/local confirmation.</p></div><button className="button-quiet" type="button" onClick={() => onNavigate("books")}>Open shelf →</button></div>
+        {books.slice(0, 3).map((book) => <div className="list-row" key={book.id}><span className="list-icon" style={{ color: subjectColor(book.subject) }}>▣</span><div><strong>{book.subject}</strong><small>{book.price && book.currency ? `${book.currency} ${book.price}` : "Price not provided · confirm locally"}</small></div></div>)}
+      </section>
+      <section className="panel"><div className="panel-header"><div><h2>Developer review queue</h2><p>Pending notes stay hidden from ordinary users.</p></div><span className="chip">{pendingCount} pending</span></div>
+        <div className="list-row"><span className="list-icon">✓</span><div><strong>Approval before publication</strong><small>Contribution permission never grants publish permission.</small></div></div>
+      </section>
+    </div>
+    <p className="login-footer" style={{ marginTop: "1.4rem", textAlign: "center" }}>Visual demo content is illustrative; verify your actual course list and textbook requirements with faculty.</p>
+  </motion.div>;
+}
+
+function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {
+  return <motion.div className="stat-card" whileHover={{ y: -3 }} transition={{ duration: .2 }}><span className="stat-icon" aria-hidden="true">{icon}</span><div><strong>{value}</strong><small>{label}</small></div></motion.div>;
+}
+
+function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, savedNotes, helpfulNotes, reportedNotes, books, onQuery, onSubject, onBook, onChapter, onSave, onHelpful, onReport, onOpenSubmit, onPreview, itemVariants }: {
+  notes: Note[]; query: string; subjectFilter: string; bookFilter: string; chapterFilter: string; savedNotes: string[]; helpfulNotes: string[]; reportedNotes: string[]; books: Book[];
+  onQuery: (value: string) => void; onSubject: (value: string) => void; onBook: (value: string) => void; onChapter: (value: string) => void; onSave: (id: string) => void; onHelpful: (id: string) => void; onReport: (id: string) => void; onOpenSubmit: () => void; onPreview: () => void; itemVariants: Variants;
+}) {
+  const bookOptions = [...new Set(books.map((book) => book.title))];
+  const chapters = [...new Set(notes.map((note) => note.chapter))];
+  return <motion.div variants={itemVariants}>
+    <PageHeading eyebrow="Shared learning" title="Notes library" description="Subject → book → chapter → custom topic → Google Docs." action={<button className="button-primary" type="button" onClick={onOpenSubmit}>＋ Submit a note</button>} />
+    <div className="notice"><strong>Link permissions:</strong> the document owner needs to grant access to intended readers. A URL alone does not guarantee that a Google Doc can be opened.</div>
+    <div className="toolbar">
+      <label className="search-control"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search notes" placeholder="Search topic, book, chapter…" value={query} onChange={(event) => onQuery(event.target.value)} /></label>
+      <select aria-label="Filter by subject" value={subjectFilter} onChange={(event) => onSubject(event.target.value)}><option>All subjects</option>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select>
+      <select aria-label="Filter by book" value={bookFilter} onChange={(event) => onBook(event.target.value)}><option>All books</option>{bookOptions.map((book) => <option key={book}>{book}</option>)}</select>
+      <select aria-label="Filter by chapter" value={chapterFilter} onChange={(event) => onChapter(event.target.value)}><option>All chapters</option>{chapters.map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
+    </div>
+    <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}</h2><span className="chip">New this week · preview</span></div>
+    <div className="card-grid">{notes.length ? notes.map((note) => <motion.article className="note-card" key={note.id} variants={itemVariants} whileHover={{ y: -4 }}>
+      <div className="card-meta"><span className="chip" style={{ color: subjectColor(note.subject) }}>{note.subject}</span><span className="chip">Approved</span></div>
+      <h3>{note.topic}</h3><p>{note.book}<br />{note.chapter}</p>
+      <div className="card-footer"><small>By {note.submittedBy}</small><div className="note-actions">
+        {note.docsUrl ? isGoogleDocsUrl(note.docsUrl) ? <a className="button-quiet" href={note.docsUrl} target="_blank" rel="noopener noreferrer">Open Doc ↗</a> : <button type="button" onClick={onPreview}>Link unavailable</button> : <button type="button" onClick={onPreview}>Preview note</button>}
+        <button type="button" aria-pressed={savedNotes.includes(note.id)} aria-label={savedNotes.includes(note.id) ? "Remove bookmark" : "Bookmark note"} onClick={() => onSave(note.id)}>{savedNotes.includes(note.id) ? "★" : "☆"}</button>
+      </div></div>
+      <div className="note-actions" style={{ marginTop: ".55rem" }}><button type="button" aria-pressed={helpfulNotes.includes(note.id)} onClick={() => onHelpful(note.id)}>Helpful · {note.helpful}</button><button type="button" aria-pressed={reportedNotes.includes(note.id)} onClick={() => onReport(note.id)}>Report link</button></div>
+    </motion.article>) : <EmptyState>No approved notes match these filters.</EmptyState>}</div>
+  </motion.div>;
+}
+
+function QuizPage({ question, index, score, total, answered, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants }: {
+  question: StudyQuestion; index: number; score: number; total: number; answered: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants;
+}) {
+  const questionNumber = (index % total) + 1;
+  return <motion.div variants={itemVariants}>
+    <PageHeading eyebrow="Active recall" title="Quizzes & study" description="Short, clearly labeled sample questions—practice content, not faculty-reviewed assessment." />
+    <div className="notice"><strong>Sample — not yet faculty reviewed.</strong> Replace these example questions with instructor-checked material before academic use.</div>
+    <div className="toolbar"><label className="search-control"><span aria-hidden="true">✳</span><select aria-label="Quiz mode" value={mode} onChange={(event) => onMode(event.target.value)}>{["Standard", "Timed practice", "Daily challenge", "Review mistakes"].map((item) => <option key={item}>{item}</option>)}</select></label><select aria-label="Quiz subject" defaultValue="All subjects"><option>All subjects</option>{subjects.map((subject) => <option key={subject.name}>{subject.name}</option>)}</select></div>
+    <div className="quiz-layout">
+      <section className="quiz-card"><div className="quiz-top"><span>{question.subject} · {question.chapter}</span><span>Question {questionNumber} of {total}</span></div>
+        <div className="progress-track"><motion.span initial={{ width: 0 }} animate={{ width: `${questionNumber / total * 100}%` }} transition={{ duration: .45 }} /></div>
+        <h2>{question.prompt}</h2>
+        <div className="quiz-options">{question.options.map((option) => {
+          const state = answered && option === question.answer ? "correct" : answered && option !== question.answer ? "muted" : "";
+          return <button className="quiz-option" key={option} type="button" disabled={answered} data-state={state} onClick={() => onAnswer(option)}>{option}</button>;
+        })}</div>
+        <div role="status" aria-live="polite" style={{ minHeight: "1.4rem", marginTop: ".7rem", color: answered ? "var(--color-lime)" : "var(--color-muted)", fontSize: ".68rem" }}>{answered ? "Answer recorded in this temporary preview." : ""}</div>
+        {answered && <button className="button-primary" type="button" onClick={onNext}>Next question →</button>}
+      </section>
+      <aside className="panel"><div className="panel-header"><div><h2>Your practice session</h2><p>Progress is not saved in the preview.</p></div><span className="chip">{mode}</span></div>
+        <div className="score-grid"><div className="score-tile"><strong>{score}</strong><small>Correct in preview</small></div><div className="score-tile"><strong>{total}</strong><small>Sample questions</small></div></div>
+        <div className="section-heading"><h2>Study flashcard</h2></div>
+        <button className="flashcard" type="button" data-flipped={flashcardSide} onClick={onFlip} aria-label="Flip sample flashcard">
+          <span className="flashcard-inner"><span className="flashcard-face"><span className="chip">Sample prompt</span><strong>{flashcardSide ? "Tap to show prompt" : "What should you do before learning an unfamiliar textbook chapter?"}</strong><small>Tap to flip</small></span><span className="flashcard-face back"><span className="chip">Sample reflection</span><strong>{flashcardSide ? "Preview the learning objective, then note unfamiliar terms." : "Answer hidden"}</strong><small>Practice only</small></span></span>
+        </button>
+        <div className="study-actions">{["Again", "Good", "Easy"].map((rating) => <button className="button-secondary" type="button" key={rating} onClick={() => onRate(rating)}>{rating}</button>)}</div>
+        <p>{flashcardRating ? `Last preview rating: ${flashcardRating}.` : "Spaced repetition scheduling will require a real user profile."}</p>
+      </aside>
+    </div>
+  </motion.div>;
+}
+
+function BooksPage({ books, onEdit, itemVariants }: { books: Book[]; onEdit: (id: string) => void; itemVariants: Variants }) {
+  return <motion.div variants={itemVariants}>
+    <PageHeading eyebrow="Course essentials" title="Books & resources" description="See what is known, what needs confirmation, and where to compare local buying options." />
+    <div className="notice"><strong>Course list not verified.</strong> Titles, editions, prices, and requirements are unconfirmed until your faculty/course outline and local booksellers are checked. Nothing below is represented as required.</div>
+    <div className="card-grid">{books.map((book) => <motion.article className="book-card" key={book.id} variants={itemVariants} whileHover={{ y: -4 }}>
+      <div className="book-art" style={{ "--book-accent": book.accent } as CSSProperties}>
+        {book.imageName ? <div className="book-placeholder">{book.imageName}<small>Local preview file · upload not yet configured</small></div> : <div className="book-placeholder">{book.subject}<small>Cover not provided</small></div>}
+      </div>
+      <span className="chip" style={{ marginTop: ".7rem", color: subjectColor(book.subject) }}>{book.subject}</span>
+      <h3>{book.title}</h3><p>{book.description}</p>
+      <div className="card-footer"><small>Author: {book.author || "Not provided"}<br />Edition: {book.edition || "Not provided"}</small><span className="chip">Not confirmed</span></div>
+      <div className="price-row"><strong>{book.price && book.currency ? `${book.currency} ${book.price}` : "Price not provided"}</strong>{book.buyUrl && isHttpsUrl(book.buyUrl) ? <a href={book.buyUrl} target="_blank" rel="noopener noreferrer">Buying options ↗</a> : <a href={`https://www.google.com/search?tbm=shop&q=${encodeURIComponent(book.subject + " Pharm D textbook")}`} target="_blank" rel="noopener noreferrer">Compare local options ↗</a>}</div>
+      {book.verifiedAt && <p>Price checked: {book.verifiedAt}</p>}
+      <button className="button-quiet" type="button" onClick={() => onEdit(book.id)}>Developer: edit listing</button>
+    </motion.article>)}</div>
+  </motion.div>;
+}
+
+function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, itemVariants }: {
+  preview: boolean; pendingNotes: Note[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; itemVariants: Variants;
+}) {
+  return <motion.div variants={itemVariants}>
+    <PageHeading eyebrow="Owner controls" title="Developer desk" description="Manage invitations, submission permissions, review queue, books, and course announcements." action={<button className="button-primary" type="button" onClick={onInvite}>＋ Invite a member</button>} />
+    <div className="notice"><strong>{preview ? "Visual preview only." : "Protected management area."}</strong> Current controls are in-memory demo behavior, not real authorization or email invitations. Configure Supabase and test RLS before production.</div>
+    <SectionHeading title="Pending note review" detail="Pending notes stay hidden from the shared library." />
+    <div className="management-list">{pendingNotes.length ? pendingNotes.map((note) => <motion.article className="management-card" key={note.id} variants={itemVariants}>
+      <div><strong>{note.topic}</strong><small>{note.subject} · {note.book} · {note.chapter}<br />Submitted by {note.submittedBy} · {note.createdAt}</small></div>
+      <div className="management-actions"><button className="button-primary" type="button" onClick={() => onReview(note.id, "approved")}>Approve</button><button className="button-danger" type="button" onClick={() => onReview(note.id, "rejected")}>Reject</button></div>
+    </motion.article>) : <EmptyState>No notes are waiting for review.</EmptyState>}</div>
+    <SectionHeading title="Members & contribution access" detail="Only the developer grants submission permission. Submission never grants publish access." action={<button className="button-secondary" type="button" onClick={onInvite}>Invite a member</button>} />
+    <div className="management-list">{members.map((member) => <div className="management-card" key={member.id}>
+      <div className="person-row"><span className="avatar">{initials(member.name)}</span><div><strong>{member.name}</strong><small>{member.email} · {member.role} · {member.status}</small></div></div>
+      <div className="management-actions"><button className="button-secondary" type="button" aria-pressed={member.canSubmit} onClick={() => onPermission(member.id)}>{member.canSubmit ? "Can submit" : "View only"}</button></div>
+    </div>)}</div>
+    <SectionHeading title="Course setup" detail="Use faculty-confirmed information; do not assume books, dates, or requirements." />
+    <div className="management-actions"><button className="button-secondary" type="button" onClick={onAnnouncement}>＋ Announcement</button><button className="button-secondary" type="button" onClick={onExam}>＋ Exam / deadline</button></div>
+    <SectionHeading title="Book catalog" detail="Add verified local prices, dates, purchase links, and covers." />
+    <div className="management-list">{books.map((book) => <div className="management-card" key={book.id}><div><strong>{book.subject}: {book.title}</strong><small>{book.price && book.currency ? `${book.currency} ${book.price}` : "Price not provided"} · Edition: {book.edition}</small></div><button className="button-secondary" type="button" onClick={() => onEditBook(book.id)}>Edit</button></div>)}</div>
+    <SectionHeading title="Study settings" detail="Preferences are local to this preview until user profiles are configured." />
+    <div className="panel">
+      <div className="settings-row"><label htmlFor="reduce-motion">Reduce animations</label><input id="reduce-motion" type="checkbox" checked={reduceAnimations} onChange={(event) => onReduceAnimations(event.target.checked)} /></div>
+      <div className="settings-row"><label htmlFor="leaderboard">Opt in to a display-name-only leaderboard</label><input id="leaderboard" type="checkbox" checked={leaderboardOptIn} onChange={(event) => onLeaderboard(event.target.checked)} /></div>
+      <div className="settings-row"><span>Animation setting shortcut</span><button className="button-quiet" type="button" onClick={onSettings}>Toggle reduced motion</button></div>
+    </div>
+    <SectionHeading title="Audit activity" detail="Demo log is volatile; production actions require server-written audit records." />
+    <div className="management-list">{auditEntries.slice(0, 8).map((entry, index) => <div className="management-card" key={`${entry}-${index}`}><strong>{entry}</strong><small>Preview memory · not an authoritative audit record</small></div>)}</div>
+    <p className="login-footer" style={{ marginTop: "1.3rem" }}>Analytics, actual leaderboard, notifications, permissions, and persisted study progress require authenticated database services.</p>
+  </motion.div>;
+}
+
+function Pomodoro() {
+  const [seconds, setSeconds] = useState(25 * 60);
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setTimeout(() => {
+      if (seconds <= 1) {
+        setSeconds(0);
+        setRunning(false);
+        return;
+      }
+      setSeconds(seconds - 1);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [running, seconds]);
+  const display = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  return <button className="button-quiet" type="button" aria-label={running ? "Pause Pomodoro" : "Start Pomodoro"} onClick={() => { if (seconds === 0) setSeconds(25 * 60); setRunning((value) => !value); }}>{display} {running ? "Ⅱ" : "▶"}</button>;
+}
+
+function CommandPalette({ query, setQuery, onClose, onSelect }: { query: string; setQuery: (value: string) => void; onClose: () => void; onSelect: (item: { label: string; page: PageKey }) => void }) {
+  const items = [
+    ...navItems.map(({ key, label }) => ({ label, page: key })),
+    ...subjects.map((subject) => ({ label: subject.name, page: "notes" as PageKey })),
+    ...initialBooks.map((book) => ({ label: book.title, page: "books" as PageKey })),
+  ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
+  return <motion.div className="command-overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event: ReactMouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); }}>
+    <motion.div className="command-dialog" role="dialog" aria-modal="true" aria-label="Search platform" initial={{ y: -10, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: -8 }} onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => { if (event.key === "Escape") onClose(); }}>
+      <input autoFocus type="search" placeholder="Search subjects, notes, books…" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <div className="command-results">{items.length ? items.map((item, index) => <button key={`${item.page}-${item.label}-${index}`} type="button" onClick={() => onSelect(item)}>{item.label}<small style={{ float: "right", color: "var(--color-muted)" }}>{pageTitle[item.page]}</small></button>) : <EmptyState>No matching destination.</EmptyState>}</div>
+      <small style={{ display: "block", padding: ".55rem", color: "var(--color-muted)" }}>Press Ctrl/Cmd+K to search · Esc to close</small>
+    </motion.div>
+  </motion.div>;
+}
+
+function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return <motion.div className="modal-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event: ReactMouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); }}>
+    <motion.section className="dialog" role="dialog" aria-modal="true" aria-label={title} initial={{ opacity: 0, y: 16, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} transition={{ duration: .22 }}>
+      <header className="dialog-header"><h2>{title}</h2><button className="button-quiet" type="button" aria-label="Close dialog" onClick={onClose}>×</button></header>
+      {children}
+    </motion.section>
+  </motion.div>;
+}
+
+function EmptyState({ children }: { children: ReactNode }) {
+  return <div className="empty-state">{children}</div>;
+}
+
+function dialogTitle(dialog: "note" | "invite" | "book" | "announcement" | "exam", book?: Book) {
+  if (dialog === "note") return "Submit a note for approval";
+  if (dialog === "invite") return "Invite a class member";
+  if (dialog === "book") return `Edit ${book?.subject ?? "book"} resource`;
+  if (dialog === "exam") return "Add an exam or deadline";
+  return "Create an announcement";
+}
