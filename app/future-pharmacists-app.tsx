@@ -71,6 +71,17 @@ type StudyQuestion = {
   options: string[];
   sample?: boolean;
 };
+type StudyFlashcard = {
+  id: string;
+  subject: string;
+  chapter: string;
+  prompt: string;
+  answer: string;
+  sample: boolean;
+  dueAt: string | null;
+  intervalSeconds: number;
+  repetitions: number;
+};
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -118,6 +129,17 @@ const sampleQuestions: StudyQuestion[] = [
   { subject: "Biochemistry", chapter: "Biomolecules · sample", prompt: "Which class includes glucose, a commonly used cellular fuel?", options: ["Carbohydrates", "Nucleic acids", "Steroids", "Minerals"] },
   { subject: "English", chapter: "Paragraphs · sample", prompt: "What does a topic sentence usually introduce?", options: ["The paragraph's main idea", "A reference list", "A new chapter", "A page number"] },
 ];
+const previewFlashcard: StudyFlashcard = {
+  id: "preview-flashcard",
+  subject: "Study strategies",
+  chapter: "Sample reflection",
+  prompt: "What should you do before learning an unfamiliar textbook chapter?",
+  answer: "Preview the learning objective, then note unfamiliar terms.",
+  sample: true,
+  dueAt: null,
+  intervalSeconds: 0,
+  repetitions: 0,
+};
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
   { key: "notes", label: "Notes library", icon: "▤" },
@@ -232,6 +254,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [quizSelectedAnswer, setQuizSelectedAnswer] = useState("");
   const [quizLastAnswerCorrect, setQuizLastAnswerCorrect] = useState(false);
   const [liveQuestions, setLiveQuestions] = useState<StudyQuestion[]>([]);
+  const [flashcards, setFlashcards] = useState<StudyFlashcard[]>([]);
   const [quizAttemptId, setQuizAttemptId] = useState("");
   const [quizTimeRemaining, setQuizTimeRemaining] = useState<number | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
@@ -322,6 +345,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         if (cancelled) return;
         setAnnouncements(courseData.announcements);
         setExamDates(courseData.exams);
+        const flashcardData = await requestJson<{ flashcards: StudyFlashcard[] }>("/api/flashcards");
+        if (cancelled) return;
+        setFlashcards(flashcardData.flashcards);
         if (authenticatedUser.role === "developer") {
           const desk = await requestJson<{
             pendingNotes: Array<{
@@ -696,6 +722,32 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       openToast(error instanceof Error ? error.message : "The quiz mode could not be started.");
     }
   }
+  async function rateFlashcard(rating: string) {
+    if (preview || !authenticatedUser) {
+      setFlashcardRating(`Preview rating: ${rating}`);
+      setFlashcardSide(false);
+      return;
+    }
+    const flashcard = flashcards[0];
+    if (!flashcard) return openToast("No published flashcards are available.");
+    try {
+      const result = await requestJson<{ schedule: { due_at: string; interval_seconds: number; repetitions: number } }>("/api/flashcards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flashcardId: flashcard.id, rating: rating.toLowerCase() }),
+      });
+      setFlashcards((items) => items.map((item) => item.id === flashcard.id ? {
+        ...item,
+        dueAt: result.schedule.due_at,
+        intervalSeconds: result.schedule.interval_seconds,
+        repetitions: result.schedule.repetitions,
+      } : item).sort((left, right) => (Date.parse(left.dueAt ?? "") || 0) - (Date.parse(right.dueAt ?? "") || 0)));
+      setFlashcardRating(`${rating} · due ${new Date(result.schedule.due_at).toLocaleString()}`);
+      setFlashcardSide(false);
+    } catch (error) {
+      openToast(error instanceof Error ? error.message : "The flashcard rating could not be saved.");
+    }
+  }
   function nextQuestion() {
     if (questionIndex === quizQuestions.length - 1) {
       if (quizAttemptId) {
@@ -1059,6 +1111,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                 />}
                 {page === "quiz" && <QuizPage
                   question={currentQuestion}
+                  flashcard={preview ? previewFlashcard : flashcards[0] ?? null}
                   sample={sampleQuestionActive}
                   completed={quizCompleted}
                   index={questionIndex}
@@ -1073,7 +1126,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   flashcardSide={flashcardSide}
                   onFlip={() => setFlashcardSide((flipped) => !flipped)}
                   flashcardRating={flashcardRating}
-                  onRate={(rating) => { setFlashcardRating(rating); setFlashcardSide(false); openToast(`Sample flashcard scheduled: ${rating}.`); }}
+                  onRate={(rating) => void rateFlashcard(rating)}
                   itemVariants={itemVariants}
                   motionEnabled={motionEnabled}
                   onMode={changeQuizMode}
@@ -1305,8 +1358,8 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
   </motion.div>;
 }
 
-function QuizPage({ question, sample, completed, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants, motionEnabled, timeRemaining, preview, onRestart }: {
-  question: StudyQuestion | null; sample: boolean; completed: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants; motionEnabled: boolean; timeRemaining: number | null; preview: boolean; onRestart: () => void;
+function QuizPage({ question, flashcard, sample, completed, index, score, total, answered, selectedAnswer, lastAnswerCorrect, mode, onMode, onAnswer, onNext, flashcardSide, onFlip, flashcardRating, onRate, itemVariants, motionEnabled, timeRemaining, preview, onRestart }: {
+  question: StudyQuestion | null; flashcard: StudyFlashcard | null; sample: boolean; completed: boolean; index: number; score: number; total: number; answered: boolean; selectedAnswer: string; lastAnswerCorrect: boolean; mode: string; onMode: (value: string) => void; onAnswer: (answer: string) => void; onNext: () => void; flashcardSide: boolean; onFlip: () => void; flashcardRating: string; onRate: (rating: string) => void; itemVariants: Variants; motionEnabled: boolean; timeRemaining: number | null; preview: boolean; onRestart: () => void;
 }) {
   const questionNumber = total ? (index % total) + 1 : 0;
   return <motion.div variants={itemVariants}>
@@ -1329,11 +1382,14 @@ function QuizPage({ question, sample, completed, index, score, total, answered, 
       <aside className="panel"><div className="panel-header"><div><h2>Your practice session</h2><p>{preview ? "Progress is not saved in the preview." : "Attempts are saved to your account."}</p></div><span className="chip">{mode.replaceAll("-", " ")}</span></div>
         <div className="score-grid"><div className="score-tile"><strong>{score}</strong><small>{preview ? "Correct in preview" : "Correct answers"}</small></div><div className="score-tile"><strong>{total}</strong><small>{preview ? "Sample questions" : "Questions in this mode"}</small></div></div>
         <div className="section-heading"><h2>Study flashcard</h2></div>
-        <button className="flashcard" type="button" data-flipped={flashcardSide} onClick={onFlip} aria-label="Flip sample flashcard">
-          <span className="flashcard-inner"><span className="flashcard-face"><span className="chip">Sample prompt</span><strong>{flashcardSide ? "Tap to show prompt" : "What should you do before learning an unfamiliar textbook chapter?"}</strong><small>Tap to flip</small></span><span className="flashcard-face back"><span className="chip">Sample reflection</span><strong>{flashcardSide ? "Preview the learning objective, then note unfamiliar terms." : "Answer hidden"}</strong><small>Practice only</small></span></span>
-        </button>
-        <div className="study-actions">{["Again", "Good", "Easy"].map((rating) => <button className="button-secondary" type="button" key={rating} onClick={() => onRate(rating)}>{rating}</button>)}</div>
-        <p>{flashcardRating ? `Last preview rating: ${flashcardRating}.` : "Spaced repetition scheduling will require a real user profile."}</p>
+        {flashcard ? <>
+          <p className="flashcard-context">{flashcard.subject} · {flashcard.chapter}{flashcard.sample ? " · Sample — not yet faculty reviewed" : ""}</p>
+          <button className="flashcard" type="button" data-flipped={flashcardSide} onClick={onFlip} aria-label={flashcardSide ? "Show flashcard prompt" : "Reveal flashcard answer"}>
+            <span className="flashcard-inner"><span className="flashcard-face"><span className="chip">{flashcard.sample ? "Sample prompt" : "Prompt"}</span><strong>{flashcardSide ? "Tap to show prompt" : flashcard.prompt}</strong><small>Tap to flip</small></span><span className="flashcard-face back"><span className="chip">{flashcard.sample ? "Sample answer" : "Answer"}</span><strong>{flashcardSide ? flashcard.answer : "Answer hidden"}</strong><small>Practice only</small></span></span>
+          </button>
+          <div className="study-actions">{["Again", "Good", "Easy"].map((rating) => <button className="button-secondary" type="button" key={rating} onClick={() => onRate(rating)}>{rating}</button>)}</div>
+          <p>{flashcardRating || (preview ? "Ratings are not saved in preview." : flashcard.dueAt ? `Next review: ${new Date(flashcard.dueAt).toLocaleString()}` : "New card — rate it after review to schedule the next repetition.")}</p>
+        </> : <EmptyState>No published flashcards are available yet.</EmptyState>}
       </aside>
     </div>
     </>}
