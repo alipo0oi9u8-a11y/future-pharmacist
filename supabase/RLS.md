@@ -21,8 +21,9 @@ RLS is enabled on every application table by the initial migration. The security
 | `quiz_attempt_answers` | Users read only their own answer records; answers are created by the owner-checked server quiz RPC and linked to a quiz attempt. |
 | `flashcards` | Active users read published cards; only the developer can manage the shared card bank. |
 | `user_flashcard_reviews` | Users can read only their own schedule. Client inserts/updates are revoked; the `review_flashcard` RPC derives the owner from `auth.uid()` and accepts only Again/Good/Easy ratings for published cards. |
-| `user_progress` | Users read only their own progress. The quiz-answer RPC updates XP/streaks; no authenticated write grant is given. |
+| `user_progress` | Users read only their own progress. Trusted quiz-answer and flashcard-review triggers award XP and update streaks through a private function; no authenticated write grant is given. |
 | `badges` / `user_badges` | Active users read active definitions; users read only their own awards. No client write grant is given. |
+| `first-quiz` / `seven-day-streak` badges | The database awards these after a non-empty quiz attempt is completed or a user's daily streak reaches seven; clients cannot grant badges. |
 | `announcements` | Active users read published announcements; only the developer can manage them. |
 | `exam_dates` | Active users can read exam dates; only the developer can manage them. |
 | `audit_events` | Only the developer can read audit events. Server-only guarded functions and review triggers write them. |

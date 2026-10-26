@@ -82,6 +82,16 @@ type StudyFlashcard = {
   intervalSeconds: number;
   repetitions: number;
 };
+type GamificationSummary = {
+  xp: number;
+  level: number;
+  xpIntoLevel: number;
+  xpForNextLevel: number;
+  currentStreak: number;
+  longestStreak: number;
+  lastStudiedOn: string | null;
+  badges: Array<{ slug: string; name: string; description: string; awardedAt: string }>;
+};
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -139,6 +149,19 @@ const previewFlashcard: StudyFlashcard = {
   dueAt: null,
   intervalSeconds: 0,
   repetitions: 0,
+};
+const previewGamification: GamificationSummary = {
+  xp: 240,
+  level: 3,
+  xpIntoLevel: 40,
+  xpForNextLevel: 100,
+  currentStreak: 3,
+  longestStreak: 7,
+  lastStudiedOn: null,
+  badges: [
+    { slug: "first-quiz", name: "First quiz", description: "Complete your first quiz attempt.", awardedAt: "" },
+    { slug: "seven-day-streak", name: "7-day streak", description: "Study on seven consecutive days.", awardedAt: "" },
+  ],
 };
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
@@ -258,6 +281,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [quizAttemptId, setQuizAttemptId] = useState("");
   const [quizTimeRemaining, setQuizTimeRemaining] = useState<number | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [gamification, setGamification] = useState<GamificationSummary | null>(null);
   const [announcements, setAnnouncements] = useState<CourseAnnouncement[]>([]);
   const [examDates, setExamDates] = useState<CourseExam[]>([]);
   const [quizMode, setQuizMode] = useState("standard");
@@ -348,6 +372,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         const flashcardData = await requestJson<{ flashcards: StudyFlashcard[] }>("/api/flashcards");
         if (cancelled) return;
         setFlashcards(flashcardData.flashcards);
+        const gamificationData = await requestJson<GamificationSummary>("/api/gamification");
+        if (cancelled) return;
+        setGamification(gamificationData);
         if (authenticatedUser.role === "developer") {
           const desk = await requestJson<{
             pendingNotes: Array<{
@@ -498,6 +525,13 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
   function openToast(message: string) {
     setToast(message);
+  }
+  async function refreshGamification() {
+    try {
+      setGamification(await requestJson<GamificationSummary>("/api/gamification"));
+    } catch (error) {
+      openToast(error instanceof Error ? error.message : "Study progress could not be refreshed.");
+    }
   }
   function enterPreview() {
     setPreview(true);
@@ -678,6 +712,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       setQuizAnswered(true);
       setQuizSelectedAnswer(answer);
       setQuizLastAnswerCorrect(result.correct);
+      if (authenticatedUser && !preview) void refreshGamification();
       if (result.correct) {
         const score = quizScore + 1;
         setQuizScore(score);
@@ -744,6 +779,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       } : item).sort((left, right) => (Date.parse(left.dueAt ?? "") || 0) - (Date.parse(right.dueAt ?? "") || 0)));
       setFlashcardRating(`${rating} · due ${new Date(result.schedule.due_at).toLocaleString()}`);
       setFlashcardSide(false);
+      void refreshGamification();
     } catch (error) {
       openToast(error instanceof Error ? error.message : "The flashcard rating could not be saved.");
     }
@@ -1084,7 +1120,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           <main id="main-content" className="content">
             <AnimatePresence mode="wait">
               <motion.section key={page} className="page" variants={pageVariants} initial="initial" animate="animate" exit={motionEnabled ? { opacity: 0, y: -5, transition: { duration: .15 } } : undefined}>
-                {page === "dashboard" && <Dashboard preview={preview} notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
+                {page === "dashboard" && <Dashboard preview={preview} gamification={preview ? previewGamification : gamification} notes={approvedNotes} pendingCount={pendingNotes.length} books={books} announcements={announcements} examDates={examDates} showDeveloperTools={preview || authenticatedUser?.role === "developer"} onNavigate={go} itemVariants={itemVariants} loading={dataLoading} motionEnabled={motionEnabled} pageVisible={pageVisible} />}
                 {page === "notes" && <NotesPage
                   notes={filteredNotes()}
                   query={query}
@@ -1233,8 +1269,9 @@ function SectionHeading({ title, detail, action }: { title: string; detail?: str
   return <div className="section-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
-function Dashboard({ preview, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
+function Dashboard({ preview, gamification, notes, pendingCount, books, announcements, examDates, showDeveloperTools, onNavigate, itemVariants, loading, motionEnabled, pageVisible }: {
   preview: boolean;
+  gamification: GamificationSummary | null;
   notes: Note[]; pendingCount: number; books: Book[]; announcements: CourseAnnouncement[]; examDates: CourseExam[];
   showDeveloperTools: boolean; onNavigate: (page: PageKey) => void; itemVariants: Variants;
   loading: boolean; motionEnabled: boolean; pageVisible: boolean;
@@ -1251,7 +1288,7 @@ function Dashboard({ preview, notes, pendingCount, books, announcements, examDat
       <StatCard icon="▤" value={String(notes.length)} label={`Approved notes${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
       <StatCard icon="✳" value={String(subjects.length)} label={`Subject areas${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
       <StatCard icon="▣" value={String(books.length)} label={`Book resources${preview ? " · sample" : ""}`} motionEnabled={motionEnabled} pageVisible={pageVisible} />
-      <StatCard icon="◷" value="0 days" label="Study streak · preview" motionEnabled={motionEnabled} pageVisible={pageVisible} />
+      <StatCard icon="✦" value={gamification ? String(gamification.xp) : "—"} label={gamification ? `XP · Level ${gamification.level}${preview ? " · sample" : ""}` : "XP · not available"} motionEnabled={motionEnabled} pageVisible={pageVisible} />
     </div>
     <SectionHeading title="Your five subjects" detail="Subject accents are inspired by the books in your logo." action={<button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Browse all →</button>} />
     <div className="subject-grid">
@@ -1259,7 +1296,7 @@ function Dashboard({ preview, notes, pendingCount, books, announcements, examDat
         const count = notes.filter((note) => note.status === "approved" && note.subject === subject.name).length;
         const progress = [36, 22, 48, 61, 18][index];
         return <motion.button key={subject.name} className="subject-card" variants={itemVariants} whileHover={motionEnabled ? { y: -5, rotateX: 1.5, rotateY: -1.5 } : undefined} type="button" style={{ "--accent": subject.color } as CSSProperties} onClick={() => onNavigate("notes")}>
-          <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes{preview ? " · sample" : ""} · sample progress {progress}%</small>
+          <span className="subject-icon" aria-hidden="true">{subject.mark}</span><strong>{subject.name}</strong><small>{count} approved notes{preview ? ` · sample · preview progress ${progress}%` : ""}</small>
         </motion.button>;
       })}
     </div>
@@ -1267,9 +1304,12 @@ function Dashboard({ preview, notes, pendingCount, books, announcements, examDat
       <section className="panel"><div className="panel-header"><div><h2>Recently approved notes</h2><p>Published content available to the cohort.</p></div><button className="button-quiet" type="button" onClick={() => onNavigate("notes")}>Library →</button></div>
         {recent.length ? recent.map((note) => <div className="list-row" key={note.id}><span className="list-icon">{note.subject.slice(0, 3).toUpperCase()}</span><div><strong>{note.topic}</strong><small>{note.subject} · {note.chapter}</small></div></div>) : <EmptyState>No approved notes yet.</EmptyState>}
       </section>
-      <section className="panel"><div className="panel-header"><div><h2>Study rhythm</h2><p>Small, repeatable sessions add up.</p></div><span className="chip">Preview</span></div>
-        <div className="subject-progress-row"><motion.span className="ring-progress" initial={motionEnabled ? { scale: .2, opacity: .45 } : { scale: 1, opacity: 1 }} whileInView={motionEnabled ? { scale: 1, opacity: 1 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .75, ease: "easeOut" }} style={{ "--progress": 62 } as CSSProperties}><span>62%</span></motion.span><div><strong>Daily study goal</strong><small>Sample progress only · no activity saved</small></div></div>
-        <div className="progress-track"><motion.span initial={motionEnabled ? { scaleX: 0 } : { scaleX: .62 }} whileInView={motionEnabled ? { scaleX: .62 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .9, ease: "easeOut" }} style={{ transformOrigin: "left" }} /></div>
+      <section className="panel"><div className="panel-header"><div><h2>Study rhythm</h2><p>Build a steady routine and grow your level.</p></div><span className="chip">{preview ? "Preview sample" : gamification ? `${gamification.currentStreak}-day streak` : "Progress unavailable"}</span></div>
+        <div className="subject-progress-row"><motion.span className="ring-progress" initial={motionEnabled ? { scale: .2, opacity: .45 } : { scale: 1, opacity: 1 }} whileInView={motionEnabled ? { scale: 1, opacity: 1 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .75, ease: "easeOut" }} style={{ "--progress": preview ? 43 : gamification ? Math.min(100, gamification.currentStreak / 7 * 100) : 0 } as CSSProperties}><span>{preview ? "3/7" : gamification ? `${gamification.currentStreak}/7` : "—"}</span></motion.span><div><strong>Study streak</strong><small>{preview ? "Sample streak · preview only" : gamification ? `Longest streak: ${gamification.longestStreak} days` : "Real progress could not be loaded."}</small></div></div>
+        <div className="progress-track"><motion.span initial={motionEnabled ? { scaleX: 0 } : { scaleX: (gamification?.xpIntoLevel ?? 0) / 100 }} whileInView={motionEnabled ? { scaleX: preview ? .4 : (gamification?.xpIntoLevel ?? 0) / 100 } : undefined} viewport={{ once: true, amount: .8 }} transition={{ duration: .9, ease: "easeOut" }} style={{ transformOrigin: "left" }} /></div>
+        <small>{preview ? "40 / 100 XP · sample preview" : gamification ? `${gamification.xpIntoLevel} / ${gamification.xpForNextLevel} XP toward level ${gamification.level + 1}` : "XP progress unavailable."}</small>
+        <div className="section-heading"><h2>Badges</h2></div>
+        {gamification?.badges.length ? <div className="badge-list">{gamification.badges.map((badge) => <span className="chip" key={badge.slug} title={badge.description}>{badge.name}{preview ? " · sample" : ""}</span>)}</div> : <p className="empty-inline">{preview ? "Sample badges appear here in preview." : "Complete a quiz or build a study streak to earn badges."}</p>}
         <div className="list-row"><span className="list-icon">◷</span><div><strong>Pomodoro focus timer</strong><small>Start a 25-minute study session.</small></div><Pomodoro /></div>
         <div className="list-row"><span className="list-icon">⚑</span><div><strong>{nextExam?.title ?? "Next class deadline"}</strong><small>{nextExam ? new Date(nextExam.starts_at).toLocaleString() : "No deadline provided yet."}</small></div></div>
       </section>
