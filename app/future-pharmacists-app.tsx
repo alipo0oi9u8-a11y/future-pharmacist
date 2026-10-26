@@ -101,6 +101,14 @@ type UserPreferences = {
   leaderboardOptIn: boolean;
 };
 type UserPreferencePatch = Partial<UserPreferences>;
+type NotificationItem = {
+  id: string;
+  event_type: "approved_note" | "announcement";
+  title: string;
+  message: string;
+  created_at: string;
+  isRead: boolean;
+};
 
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
@@ -172,6 +180,10 @@ const previewGamification: GamificationSummary = {
     { slug: "seven-day-streak", name: "7-day streak", description: "Study on seven consecutive days.", awardedAt: "" },
   ],
 };
+const previewNotifications: NotificationItem[] = [
+  { id: "preview-notice-1", event_type: "approved_note", title: "Sample approved note", message: "Preview chapter · sample update", created_at: "2026-10-20T09:00:00.000Z", isRead: false },
+  { id: "preview-notice-2", event_type: "announcement", title: "Welcome to the study space", message: "Announcements and approved resources will appear here.", created_at: "2026-10-20T09:00:00.000Z", isRead: false },
+];
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
   { key: "notes", label: "Notes library", icon: "▤" },
@@ -326,7 +338,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [preferenceStatus, setPreferenceStatus] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
-  const [noticeCount, setNoticeCount] = useState(2);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [dialog, setDialog] = useState<"note" | "invite" | "book" | "announcement" | "exam" | null>(null);
   const [activeBookId, setActiveBookId] = useState("");
@@ -420,6 +433,16 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           if (!cancelled) {
             console.error("Could not load account preferences.", error);
             openToast("Account preferences could not be loaded; this device's settings remain active.");
+          }
+        }
+        try {
+          const notificationData = await requestJson<{ items: NotificationItem[] }>("/api/notifications");
+          if (cancelled) return;
+          setNotifications(notificationData.items);
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Could not load account notifications.", error);
+            openToast("Notifications could not be loaded.");
           }
         }
         if (authenticatedUser.role === "developer") {
@@ -575,6 +598,37 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   function openToast(message: string) {
     setToast(message);
   }
+  async function markNotificationRead(id: string) {
+    const notification = notifications.find((item) => item.id === id);
+    if (!notification || notification.isRead) return;
+    if (!preview && authenticatedUser) {
+      try {
+        await requestJson<{ ok: boolean }>("/api/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notificationId: id }),
+        });
+      } catch (error) {
+        return openToast(error instanceof Error ? error.message : "Notification could not be marked as read.");
+      }
+    }
+    setNotifications((items) => items.map((item) => item.id === id ? { ...item, isRead: true } : item));
+  }
+  async function markAllNotificationsRead() {
+    if (!notifications.some((item) => !item.isRead)) return;
+    if (!preview && authenticatedUser) {
+      try {
+        await requestJson<{ ok: boolean; markedCount: number }>("/api/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ all: true }),
+        });
+      } catch (error) {
+        return openToast(error instanceof Error ? error.message : "Notifications could not be marked as read.");
+      }
+    }
+    setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+  }
   function applyUserPreferences(preferences: UserPreferences) {
     setStoredTheme(preferences.theme);
     setStoredReduceAnimations(preferences.reduceAnimations);
@@ -613,6 +667,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
   function enterPreview() {
     setPreview(true);
+    setNotifications(previewNotifications);
     setPage("dashboard");
     setAuditEntries((entries) => [`Entered visual-only developer preview`, ...entries]);
   }
@@ -659,6 +714,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   async function signOut() {
     if (preview) {
       setPreview(false);
+      setNotifications([]);
       setPage("dashboard");
       return;
     }
@@ -1192,7 +1248,18 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             <div className="breadcrumbs">Study space <span aria-hidden="true">/</span> <strong>{pageTitle[page]}</strong></div>
             <div className="top-actions">
               <span className="top-pill">Semester 1</span>
-              <button className="button-quiet" type="button" aria-label={`${noticeCount} sample notifications`} title="Sample notifications" onClick={() => { setNoticeCount(0); openToast("No new sample notifications."); }}>♧{noticeCount > 0 ? ` ${noticeCount}` : ""}</button>
+              <div className="notification-anchor">
+                <button className="button-quiet notification-trigger" type="button" aria-label={`Notifications, ${notifications.filter((item) => !item.isRead).length} unread`} aria-expanded={notificationsOpen} aria-controls="notification-panel" onClick={() => setNotificationsOpen((open) => !open)}>
+                  ♧{notifications.some((item) => !item.isRead) ? ` ${notifications.filter((item) => !item.isRead).length}` : ""}
+                </button>
+                {notificationsOpen && <section id="notification-panel" className="notification-popover" aria-label="Notifications">
+                  <div className="notification-heading"><strong>Notifications</strong><button className="button-quiet" type="button" disabled={!notifications.some((item) => !item.isRead)} onClick={() => void markAllNotificationsRead()}>Mark all read</button></div>
+                  {notifications.length ? <div className="notification-list">{notifications.map((item) => <button className="notification-item" data-read={item.isRead} type="button" key={item.id} onClick={() => void markNotificationRead(item.id)}>
+                    <span className="chip">{item.event_type === "approved_note" ? "Approved note" : "Announcement"}{preview ? " · sample" : ""}</span>
+                    <strong>{item.title}</strong><small>{item.message}</small><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
+                  </button>)}</div> : <EmptyState>No notifications yet.</EmptyState>}
+                </section>}
+              </div>
               <button className="button-quiet" type="button" aria-label="Open search" onClick={() => setCommandOpen(true)}>⌕ <kbd>Ctrl K</kbd></button>
               <MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} />
               <button className="button-quiet" type="button" aria-pressed={soundEnabled} aria-label={`Sound effects ${soundEnabled ? "on" : "off"}`} title={`Sound effects ${soundEnabled ? "on" : "off"}`} onClick={() => void saveUserPreferences({ soundEnabled: !soundEnabled })}>♪</button>
