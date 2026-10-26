@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "contrast:check": "node scripts/check-subject-contrast.mjs",
+    "test:command-search": "node --experimental-strip-types --test scripts/command-search.test.mjs",
     "import:sample-quiz-bank": "node --env-file=.env.local scripts/import-sample-quiz-bank.mjs",
     "bootstrap:developer": "node --env-file=.env.local scripts/bootstrap-developer.mjs"
   },

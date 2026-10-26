@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
 import type { Variants } from "motion/react";
+import { buildCommandSearchItems, filterCommandSearchItems, type CommandSearchItem } from "@/lib/command-search";
 import type { AppRole } from "@/lib/supabase/types";
 
 type PageKey = "dashboard" | "notes" | "quiz" | "books" | "developer";
@@ -606,6 +607,13 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const quizQuestions = preview || !authenticatedUser ? sampleQuestions : liveQuestions;
   const currentQuestion = quizQuestions.length ? quizQuestions[questionIndex % quizQuestions.length] : null;
   const sampleQuestionActive = preview || !authenticatedUser || Boolean(currentQuestion?.sample);
+  const commandItems = useMemo(() => buildCommandSearchItems({
+    navigation: navItems,
+    subjects,
+    notes: approvedNotes,
+    books,
+    questions: quizQuestions,
+  }), [approvedNotes, books, quizQuestions]);
 
   function displayLoginError(message: string) {
     setLoginError(message);
@@ -1196,8 +1204,25 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       setModalError(error instanceof Error ? error.message : "The course update could not be saved.");
     }
   }
-  function openCommand(item: { label: string; page: PageKey }) {
+  function openCommand(item: CommandSearchItem) {
     setCommandOpen(false);
+    if (item.noteSubject) {
+      setQuery("");
+      setSubjectFilter(item.noteSubject);
+      setBookFilter("All books");
+      setChapterFilter("All chapters");
+    } else if (item.noteQuery) {
+      setQuery(item.noteQuery);
+      setSubjectFilter("All subjects");
+      setBookFilter("All books");
+      setChapterFilter("All chapters");
+    } else if (item.questionIndex !== undefined) {
+      setQuestionIndex(item.questionIndex);
+      setQuizAnswered(false);
+      setQuizSelectedAnswer("");
+      setQuizLastAnswerCorrect(false);
+      setQuizCompleted(false);
+    }
     go(item.page);
   }
 
@@ -1442,7 +1467,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           {(preview || authenticatedUser?.role === "developer") && <button type="button" aria-current={page === "developer" ? "page" : undefined} onClick={() => go("developer")}><span aria-hidden="true">⚙</span>Manage</button>}
         </nav>
       </div>
-      <AnimatePresence>{commandOpen && <CommandPalette query={commandQuery} setQuery={setCommandQuery} onClose={() => setCommandOpen(false)} onSelect={openCommand} />}</AnimatePresence>
+      <AnimatePresence>{commandOpen && <CommandPalette items={commandItems} query={commandQuery} setQuery={setCommandQuery} onClose={() => setCommandOpen(false)} onSelect={openCommand} />}</AnimatePresence>
       <AnimatePresence>
         {dialog && <Dialog title={dialogTitle(dialog, activeBook)} onClose={() => { setDialog(null); setModalError(""); }}>
           {dialog === "note" && <form onSubmit={submitNote}>
@@ -1900,16 +1925,12 @@ function Pomodoro() {
   return <button className="button-quiet" type="button" aria-label={running ? "Pause Pomodoro" : "Start Pomodoro"} onClick={() => { if (seconds === 0) setSeconds(25 * 60); setRunning((value) => !value); }}>{display} {running ? "Ⅱ" : "▶"}</button>;
 }
 
-function CommandPalette({ query, setQuery, onClose, onSelect }: { query: string; setQuery: (value: string) => void; onClose: () => void; onSelect: (item: { label: string; page: PageKey }) => void }) {
-  const items = [
-    ...navItems.map(({ key, label }) => ({ label, page: key })),
-    ...subjects.map((subject) => ({ label: subject.name, page: "notes" as PageKey })),
-    ...initialBooks.map((book) => ({ label: book.title, page: "books" as PageKey })),
-  ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
+function CommandPalette({ items, query, setQuery, onClose, onSelect }: { items: CommandSearchItem[]; query: string; setQuery: (value: string) => void; onClose: () => void; onSelect: (item: CommandSearchItem) => void }) {
+  const matches = filterCommandSearchItems(items, query);
   return <motion.div className="command-overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event: ReactMouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); }}>
     <motion.div className="command-dialog" role="dialog" aria-modal="true" aria-label="Search platform" initial={{ y: -10, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: -8 }} onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => { if (event.key === "Escape") onClose(); }}>
-      <input autoFocus type="search" placeholder="Search subjects, notes, books…" value={query} onChange={(event) => setQuery(event.target.value)} />
-      <div className="command-results">{items.length ? items.map((item, index) => <button key={`${item.page}-${item.label}-${index}`} type="button" onClick={() => onSelect(item)}>{item.label}<small style={{ float: "right", color: "var(--color-muted)" }}>{pageTitle[item.page]}</small></button>) : <EmptyState>No matching destination.</EmptyState>}</div>
+      <input autoFocus type="search" aria-label="Search notes, quizzes, books, and sections" placeholder="Search notes, quizzes, books…" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <div className="command-results">{matches.length ? matches.map((item) => <button key={item.key} type="button" onClick={() => onSelect(item)}><span>{item.label}<small>{item.detail}</small></span><small style={{ color: "var(--color-muted)" }}>{pageTitle[item.page]}</small></button>) : <EmptyState>No matching notes, quizzes, books, or sections.</EmptyState>}</div>
       <small style={{ display: "block", padding: ".55rem", color: "var(--color-muted)" }}>Press Ctrl/Cmd+K to search · Esc to close</small>
     </motion.div>
   </motion.div>;
