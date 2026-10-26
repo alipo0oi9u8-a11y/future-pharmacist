@@ -121,7 +121,7 @@ type ActionBurst = { id: number; x: number; y: number; xPercent: number; yPercen
 const logoPath = "/assets/future-pharmacists-logo.jpeg";
 export const LAYERED_LOGO_MODE = false;
 const logoDecorations = Array.from({ length: 12 }, (_, index) => index);
-const ambientParticleCount = Array.from({ length: 9 }, (_, index) => index);
+const ambientParticleCount = Array.from({ length: 14 }, (_, index) => index);
 const subjects = [
   { name: "Physiology", mark: "♡", color: "var(--subject-physiology)", book: "Course textbook not confirmed" },
   { name: "Organic Chemistry", mark: "⌬", color: "var(--subject-organic)", book: "Course textbook not confirmed" },
@@ -216,6 +216,7 @@ const pageTitle: Record<PageKey, string> = {
 };
 const themeChangeEvent = "future-pharmacists-theme-change";
 const reduceAnimationsChangeEvent = "future-pharmacists-reduce-animations-change";
+const effectsLevelChangeEvent = "future-pharmacists-effects-level-change";
 const soundPreferenceChangeEvent = "future-pharmacists-sound-preference-change";
 const leaderboardPreferenceChangeEvent = "future-pharmacists-leaderboard-preference-change";
 const subscribeToNoChanges = () => () => {};
@@ -223,6 +224,17 @@ const getLowPowerDeviceSnapshot = () => (navigator.hardwareConcurrency || 8) <= 
 const getServerLowPowerSnapshot = () => false;
 const getReduceAnimationsSnapshot = () => localStorage.getItem("future-pharmacists.reduce-animations.v1") === "true";
 const getServerReduceAnimationsSnapshot = () => false;
+type EffectsLevel = "off" | "calm" | "wild";
+const getEffectsLevelSnapshot = (): EffectsLevel => {
+  const saved = localStorage.getItem("future-pharmacists.effects-level.v1");
+  return saved === "off" || saved === "wild" ? saved : "calm";
+};
+const getServerEffectsLevelSnapshot = (): EffectsLevel => "calm";
+const subscribeToEffectsLevel = (callback: () => void) => subscribeToPreferenceEvent(effectsLevelChangeEvent, callback);
+function setStoredEffectsLevel(level: EffectsLevel) {
+  localStorage.setItem("future-pharmacists.effects-level.v1", level);
+  window.dispatchEvent(new Event(effectsLevelChangeEvent));
+}
 const subscribeToPreferenceEvent = (eventName: string, callback: () => void) => {
   window.addEventListener(eventName, callback);
   window.addEventListener("storage", callback);
@@ -307,12 +319,26 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+function EffectsLevelControl({ level, onChange, performanceLimited, compact = false }: { level: EffectsLevel; onChange: (level: EffectsLevel) => void; performanceLimited: boolean; compact?: boolean }) {
+  return <label className={`effects-control ${compact ? "is-compact" : ""}`}>
+    <span>Effects</span>
+    <select aria-label="Background and animation effects level" value={level} onChange={(event) => {
+      const value = event.target.value;
+      if (value === "off" || value === "calm" || value === "wild") onChange(value);
+    }}>
+      <option value="off">Off</option><option value="calm">Calm</option><option value="wild">Wild</option>
+    </select>
+    {performanceLimited && <span className="effects-status" role="status" aria-live="polite">Wild lowered to Calm for performance</span>}
+  </label>;
+}
+
 export default function FuturePharmacistsApp({ authenticatedUser = null }: { authenticatedUser?: AuthenticatedUser | null }) {
   const reduceMotion = useReducedMotion();
   const router = useRouter();
   const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
   const reduceAnimations = useSyncExternalStore(subscribeToReduceAnimations, getReduceAnimationsSnapshot, getServerReduceAnimationsSnapshot);
-  const motionEnabled = !reduceMotion && !reduceAnimations;
+  const effectsLevel = useSyncExternalStore(subscribeToEffectsLevel, getEffectsLevelSnapshot, getServerEffectsLevelSnapshot);
+  const motionEnabled = !reduceMotion && !reduceAnimations && effectsLevel !== "off";
   const [page, setPage] = useState<PageKey>("dashboard");
   const [preview, setPreview] = useState(false);
   const [intro, setIntro] = useState(false);
@@ -333,6 +359,8 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const actionBurstTimer = useRef<number | null>(null);
   const loginLogoRef = useRef<HTMLImageElement>(null);
   const [pageVisible, setPageVisible] = useState(true);
+  const [performanceLimited, setPerformanceLimited] = useState(false);
+  const visibleEffectsLevel: EffectsLevel = effectsLevel === "wild" && performanceLimited ? "calm" : effectsLevel;
   const lowPowerDevice = useSyncExternalStore(subscribeToNoChanges, getLowPowerDeviceSnapshot, getServerLowPowerSnapshot);
   const [query, setQuery] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All subjects");
@@ -377,6 +405,32 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   useEffect(() => () => {
     if (actionBurstTimer.current !== null) window.clearTimeout(actionBurstTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (!pageVisible || !motionEnabled || effectsLevel !== "wild" || performanceLimited) return;
+    let frame = 0;
+    let windowStart = 0;
+    let frameCount = 0;
+    let lowFrameWindows = 0;
+    const sampleFrames = (timestamp: number) => {
+      if (!windowStart) windowStart = timestamp;
+      frameCount += 1;
+      const elapsed = timestamp - windowStart;
+      if (elapsed >= 1500) {
+        if (frameCount / elapsed * 1000 < 45) lowFrameWindows += 1;
+        else lowFrameWindows = 0;
+        if (lowFrameWindows >= 2) {
+          setPerformanceLimited(true);
+          return;
+        }
+        windowStart = timestamp;
+        frameCount = 0;
+      }
+      frame = window.requestAnimationFrame(sampleFrames);
+    };
+    frame = window.requestAnimationFrame(sampleFrames);
+    return () => window.cancelAnimationFrame(frame);
+  }, [effectsLevel, motionEnabled, pageVisible, performanceLimited]);
 
   useEffect(() => {
     if (!motionEnabled) return;
@@ -673,6 +727,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
   function openToast(message: string) {
     setToast(message);
+  }
+  function changeEffectsLevel(level: EffectsLevel) {
+    setPerformanceLimited(false);
+    setStoredEffectsLevel(level);
   }
   function triggerActionBurst(bounds: DOMRect) {
     if (!motionEnabled) return;
@@ -1304,9 +1362,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
 
   if (!preview && !authenticatedUser) {
     return (
-      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"} data-action-burst={actionBurst ? "true" : "false"}>
+      <main className={`login-layout ${pageVisible ? "" : "is-tab-hidden"}`} data-success={loginSuccess ? "true" : "false"} data-motion={motionEnabled ? "on" : "off"} data-effects={visibleEffectsLevel} data-action-burst={actionBurst ? "true" : "false"}>
         <a className="skip-link" href="#signin">Skip to sign in</a>
-        <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
+        <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} effectsLevel={visibleEffectsLevel} motionEnabled={motionEnabled} />
         {actionBurst && <ActionBurstOverlay key={actionBurst.id} burst={actionBurst} />}
         <section className="login-showcase" aria-label="Future Pharmacists introduction">
           <div className="brand-lockup">
@@ -1323,7 +1381,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           <div className="login-footer">A shared learning space for the Pharm D cohort.</div>
         </section>
         <section className="login-panel" id="signin">
-          <div className="login-motion-setting"><MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} /></div>
+          <div className="login-motion-setting"><EffectsLevelControl level={effectsLevel} onChange={changeEffectsLevel} performanceLimited={performanceLimited} /><MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} /></div>
           <motion.form
             className="login-card"
             data-error={loginError ? "true" : "false"}
@@ -1349,7 +1407,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
         </section>
         <AnimatePresence>
           {intro && <motion.div className="intro-overlay" initial={{ opacity: 1 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .3 }}>
-            <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
+            <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} effectsLevel={visibleEffectsLevel} motionEnabled={motionEnabled} />
             <button className="button-secondary intro-skip" type="button" onClick={finishIntro}>Skip intro</button>
             <motion.div className="intro-content" initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .94 }} transition={{ duration: .65, ease: [.2, .75, .25, 1] }}>
               <LogoStage className="intro-logo-stage" reduceMotion={Boolean(reduceMotion) || reduceAnimations} pageVisible={pageVisible} />
@@ -1372,9 +1430,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   }
 
   return (
-    <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"} data-action-burst={actionBurst ? "true" : "false"}>
+    <div className={`app-frame ${pageVisible ? "" : "is-tab-hidden"}`} data-motion={motionEnabled ? "on" : "off"} data-effects={visibleEffectsLevel} data-action-burst={actionBurst ? "true" : "false"}>
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} />
+      <AmbientBackground lowPower={lowPowerDevice} pageVisible={pageVisible} effectsLevel={visibleEffectsLevel} motionEnabled={motionEnabled} />
       {actionBurst && <ActionBurstOverlay key={actionBurst.id} burst={actionBurst} />}
       <div className="application">
         <aside className="sidebar">
@@ -1412,6 +1470,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
               </div>
               <button className="button-quiet" type="button" aria-label="Open search" onClick={() => setCommandOpen(true)}>⌕ <kbd>Ctrl K</kbd></button>
               <MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} />
+              <EffectsLevelControl level={effectsLevel} onChange={changeEffectsLevel} performanceLimited={performanceLimited} compact />
               <button className="button-quiet" type="button" aria-pressed={soundEnabled} aria-label={`Sound effects ${soundEnabled ? "on" : "off"}`} title={`Sound effects ${soundEnabled ? "on" : "off"}`} onClick={() => void saveUserPreferences({ soundEnabled: !soundEnabled })}>♪</button>
               <button className="button-quiet" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => void saveUserPreferences({ theme: theme === "dark" ? "light" : "dark" })}>{theme === "dark" ? "☼" : "☾"}</button>
             </div>
@@ -1678,9 +1737,39 @@ function Dashboard({ preview, gamification, notes, pendingCount, books, announce
   </motion.div>;
 }
 
-function AmbientBackground({ lowPower, pageVisible }: { lowPower: boolean; pageVisible: boolean }) {
-  return <div className={`ambient ${pageVisible ? "" : "is-tab-hidden"}`} data-low-power={lowPower ? "true" : "false"} aria-hidden="true">
+function AmbientBackground({ lowPower, pageVisible, effectsLevel, motionEnabled }: { lowPower: boolean; pageVisible: boolean; effectsLevel: EffectsLevel; motionEnabled: boolean }) {
+  const backgroundRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const background = backgroundRef.current;
+    if (!background || !motionEnabled || !pageVisible || !window.matchMedia("(pointer: fine)").matches) return;
+    let frame = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+    const onPointerMove = (event: PointerEvent) => {
+      pointerX = (event.clientX / window.innerWidth - .5) * 22;
+      pointerY = (event.clientY / window.innerHeight - .5) * 18;
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        background.querySelectorAll<HTMLElement>(".ambient-blob").forEach((blob, index) => {
+          const depth = (index + 1) * .16;
+          blob.style.setProperty("--parallax-x", `${pointerX * depth}px`);
+          blob.style.setProperty("--parallax-y", `${pointerY * depth}px`);
+        });
+        frame = 0;
+      });
+    };
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [motionEnabled, pageVisible]);
+
+  return <div ref={backgroundRef} className={`ambient ${pageVisible ? "" : "is-tab-hidden"}`} data-low-power={lowPower ? "true" : "false"} data-effects={effectsLevel} data-motion={motionEnabled ? "on" : "off"} aria-hidden="true">
     {ambientParticleCount.map((particle) => <span className="ambient-particle" key={particle} data-shape={particle % 3 === 0 ? "capsule" : particle % 3 === 1 ? "leaf" : "molecule"} style={{ "--particle-index": particle } as CSSProperties} />)}
+    <span className="ambient-blob ambient-blob-one" />
+    <span className="ambient-blob ambient-blob-two" />
+    <span className="ambient-blob ambient-blob-three" />
   </div>;
 }
 
