@@ -131,9 +131,24 @@ const pageTitle: Record<PageKey, string> = {
   developer: "Developer desk",
 };
 const themeChangeEvent = "future-pharmacists-theme-change";
+const reduceAnimationsChangeEvent = "future-pharmacists-reduce-animations-change";
 const subscribeToNoChanges = () => () => {};
 const getLowPowerDeviceSnapshot = () => (navigator.hardwareConcurrency || 8) <= 4;
 const getServerLowPowerSnapshot = () => false;
+const getReduceAnimationsSnapshot = () => localStorage.getItem("future-pharmacists.reduce-animations.v1") === "true";
+const getServerReduceAnimationsSnapshot = () => false;
+const subscribeToReduceAnimations = (callback: () => void) => {
+  window.addEventListener(reduceAnimationsChangeEvent, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(reduceAnimationsChangeEvent, callback);
+    window.removeEventListener("storage", callback);
+  };
+};
+function setStoredReduceAnimations(enabled: boolean) {
+  localStorage.setItem("future-pharmacists.reduce-animations.v1", String(enabled));
+  window.dispatchEvent(new Event(reduceAnimationsChangeEvent));
+}
 const subscribeToTheme = (callback: () => void) => {
   window.addEventListener(themeChangeEvent, callback);
   return () => window.removeEventListener(themeChangeEvent, callback);
@@ -184,11 +199,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const reduceMotion = useReducedMotion();
   const router = useRouter();
   const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
+  const reduceAnimations = useSyncExternalStore(subscribeToReduceAnimations, getReduceAnimationsSnapshot, getServerReduceAnimationsSnapshot);
+  const motionEnabled = !reduceMotion && !reduceAnimations;
   const [page, setPage] = useState<PageKey>("dashboard");
   const [preview, setPreview] = useState(false);
   const [intro, setIntro] = useState(false);
   const [introReady, setIntroReady] = useState(false);
-  const [reduceAnimations, setReduceAnimations] = useState(false);
   const [notes, setNotes] = useState<Note[]>(authenticatedUser ? [] : initialNotes);
   const [members, setMembers] = useState<Member[]>(authenticatedUser ? [] : initialMembers);
   const [books, setBooks] = useState<Book[]>(authenticatedUser ? [] : initialBooks);
@@ -341,8 +357,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     const seen = sessionStorage.getItem("fp-intro-seen-v1");
     let endTimer: number | undefined;
     const beginTimer = window.setTimeout(() => {
-      if (seen || reduceMotion) {
+      if (seen || !motionEnabled) {
         setIntroReady(true);
+        setIntro(false);
         return;
       }
       setIntro(true);
@@ -356,7 +373,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
       window.clearTimeout(beginTimer);
       if (endTimer) window.clearTimeout(endTimer);
     };
-  }, [reduceMotion]);
+  }, [motionEnabled]);
 
   useEffect(() => {
     const authState = new URLSearchParams(window.location.search).get("auth");
@@ -414,7 +431,6 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const quizQuestions = authenticatedUser && liveQuestions.length > 0 ? liveQuestions : sampleQuestions;
   const currentQuestion = quizQuestions[questionIndex % quizQuestions.length];
   const sampleQuestionActive = !authenticatedUser || liveQuestions.length === 0;
-  const motionEnabled = !reduceMotion && !reduceAnimations;
 
   function displayLoginError(message: string) {
     setLoginError(message);
@@ -431,7 +447,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   function go(nextPage: PageKey) {
     setPage(nextPage);
     setCommandOpen(false);
-    window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+    window.scrollTo({ top: 0, behavior: motionEnabled ? "smooth" : "auto" });
   }
   function openToast(message: string) {
     setToast(message);
@@ -827,6 +843,10 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     go(item.page);
   }
 
+  function updateReduceAnimations(enabled: boolean) {
+    setStoredReduceAnimations(enabled);
+  }
+
   const pageVariants: Variants = !motionEnabled ? { initial: { opacity: 1 }, animate: { opacity: 1 } } : {
     initial: { opacity: 0, y: 10 },
     animate: { opacity: 1, y: 0, transition: { duration: .34, ease: [.2, .75, .25, 1] as const, staggerChildren: .055 } },
@@ -856,13 +876,14 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           <div className="login-footer">A shared learning space for the Pharm D cohort.</div>
         </section>
         <section className="login-panel" id="signin">
+          <div className="login-motion-setting"><MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} /></div>
           <motion.form
             className="login-card"
             data-error={loginError ? "true" : "false"}
             data-shake={loginShake ? "true" : "false"}
             onSubmit={attemptLogin}
-            initial={reduceMotion ? false : { opacity: 0, y: 22 }}
-            animate={introReady || reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 22 }}
+            initial={!motionEnabled ? false : { opacity: 0, y: 22 }}
+            animate={introReady || !motionEnabled ? { opacity: 1, y: 0 } : { opacity: 0, y: 22 }}
             transition={{ duration: .65, delay: introReady ? .08 : 0, ease: [.2, .75, .25, 1] }}
           >
             <div className="eyebrow">Welcome to your study hub</div>
@@ -931,6 +952,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
               <span className="top-pill">Semester 1</span>
               <button className="button-quiet" type="button" aria-label={`${noticeCount} sample notifications`} title="Sample notifications" onClick={() => { setNoticeCount(0); openToast("No new sample notifications."); }}>♧{noticeCount > 0 ? ` ${noticeCount}` : ""}</button>
               <button className="button-quiet" type="button" aria-label="Open search" onClick={() => setCommandOpen(true)}>⌕ <kbd>Ctrl K</kbd></button>
+              <MotionToggle enabled={reduceAnimations} onToggle={updateReduceAnimations} />
               <button className="button-quiet" type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setStoredTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☼" : "☾"}</button>
             </div>
           </header>
@@ -994,9 +1016,9 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                   onEditBook={(id) => { setActiveBookId(id); setModalError(""); setDialog("book"); }}
                   onAnnouncement={() => { setModalError(""); setDialog("announcement"); }}
                   onExam={() => { setModalError(""); setDialog("exam"); }}
-                  onSettings={() => { setReduceAnimations((value) => !value); openToast(reduceAnimations ? "Animations enabled." : "Reduced motion enabled."); }}
+                  onSettings={() => { updateReduceAnimations(!reduceAnimations); openToast(reduceAnimations ? "Animations enabled." : "Reduced motion enabled."); }}
                   reduceAnimations={reduceAnimations}
-                  onReduceAnimations={setReduceAnimations}
+                  onReduceAnimations={updateReduceAnimations}
                   leaderboardOptIn={leaderboardOptIn}
                   onLeaderboard={setLeaderboardOptIn}
                   itemVariants={itemVariants}
@@ -1064,6 +1086,12 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
 
 function NavButton({ item, active, onClick }: { item: { key: PageKey; label: string; icon: string }; active: boolean; onClick: () => void }) {
   return <button className="nav-link" type="button" aria-current={active ? "page" : undefined} onClick={onClick}><span className="nav-symbol" aria-hidden="true">{item.icon}</span>{item.label}</button>;
+}
+
+function MotionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: (value: boolean) => void }) {
+  return <button className="button-quiet motion-toggle" type="button" aria-label="Reduce animations" aria-pressed={enabled} title={`Reduce animations ${enabled ? "enabled" : "disabled"}`} onClick={() => onToggle(!enabled)}>
+    <span aria-hidden="true">◌</span><span className="motion-toggle-label">Motion</span>
+  </button>;
 }
 
 function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {

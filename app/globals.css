@@ -136,7 +136,10 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .logo-ring circle { fill: none; stroke: var(--color-ring); stroke-dasharray: 2 1; stroke-dashoffset: 2; stroke-linecap: round; stroke-width: .012; animation: draw-ring 1.8s var(--ease-standard) .25s forwards; }
 @keyframes draw-ring { to { stroke-dashoffset: 0; } }
 .login-footer { color: var(--color-muted); font-size: .7rem; }
-.login-panel { display: grid; min-height: 100vh; padding: 2rem; place-items: center; background: linear-gradient(120deg, transparent, rgb(255 255 255 / 1.5%)); }
+.login-panel { position: relative; display: grid; min-height: 100vh; padding: 2rem; place-items: center; background: linear-gradient(120deg, transparent, rgb(255 255 255 / 1.5%)); }
+.login-motion-setting { position: absolute; top: 1rem; right: 1rem; z-index: 2; }
+.motion-toggle[aria-pressed="true"] { border-color: var(--color-ring); color: var(--color-lime); }
+.motion-toggle-label { font-size: .62rem; }
 .login-card {
   width: min(100%, 29rem);
   padding: clamp(1.75rem, 4vw, 3rem);
@@ -421,6 +424,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
+  .motion-toggle-label { display: none; }
   .login-layout { grid-template-columns: 1fr; }
   .login-showcase { min-height: auto; padding: 1.25rem 1.3rem .6rem; }
   .login-story { width: 100%; padding: 1.2rem 0 .1rem; }
