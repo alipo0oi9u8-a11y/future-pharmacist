@@ -25,7 +25,9 @@ type Note = {
   submittedBy: string;
   createdAt: string;
   helpful: number;
+  newThisWeek?: boolean;
 };
+type NoteReport = { id: string; note_id: string; user_id: string; reason: string; created_at: string; status: "open" | "resolved" | "dismissed" };
 type Member = {
   id: string;
   name: string;
@@ -53,7 +55,7 @@ type Book = {
 type ApiNote = {
   id: string; subject_id: string; subject: string; book_id: string; book: string;
   chapter: string; topic: string; docs_url: string | null; submitted_by: string;
-  created_at: string; helpful_count: number;
+  created_at: string; helpful_count: number; new_this_week: boolean;
 };
 type ApiBook = {
   id: string; subject_id: string; title: string; author: string; edition: string;
@@ -302,6 +304,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
   const [savedNotes, setSavedNotes] = useState<string[]>([]);
   const [helpfulNotes, setHelpfulNotes] = useState<string[]>([]);
   const [reportedNotes, setReportedNotes] = useState<string[]>([]);
+  const [noteReports, setNoteReports] = useState<NoteReport[]>([]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [quizScore, setQuizScore] = useState(0);
   const [quizAnswered, setQuizAnswered] = useState(false);
@@ -353,6 +356,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
           submittedBy: note.submitted_by,
           createdAt: note.created_at,
           helpful: note.helpful_count,
+          newThisWeek: note.new_this_week,
         })));
         setBooks(studyData.books.map((book) => {
           const subject = studyData.subjects.find((item) => item.id === book.subject_id);
@@ -430,6 +434,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
               status: "invited" | "active" | "disabled"; contribution_permissions: Array<{ content_type: string }>;
             }>;
             audit: Array<{ action: string; entity_type: string; entity_id: string | null; created_at: string }>;
+            reports: NoteReport[];
           }>("/api/developer/desk");
           if (cancelled) return;
           const pending = desk.pendingNotes.map((note): Note => ({
@@ -454,6 +459,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
             status: member.status,
           })));
           setAuditEntries(desk.audit.map((entry) => `${entry.action} · ${entry.entity_type} ${entry.entity_id ?? ""} · ${entry.created_at}`));
+          setNoteReports(desk.reports);
         }
       } catch (error) {
         if (!cancelled) openToast(error instanceof Error ? error.message : "Study data could not be loaded.");
@@ -916,7 +922,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
     setNotes((items) => items.map((note) => note.id === id ? { ...note, helpful: note.helpful + 1 } : note));
   }
   async function reportLink(id: string) {
-    if (reportedNotes.includes(id)) return openToast("You have already reported this sample note.");
+    if (reportedNotes.includes(id)) return openToast("You have already reported this note.");
     if (authenticatedUser) {
       try {
         await requestJson<{ ok: boolean }>("/api/note-activity", {
@@ -1273,6 +1279,7 @@ export default function FuturePharmacistsApp({ authenticatedUser = null }: { aut
                 {page === "developer" && (preview || authenticatedUser?.role === "developer") && <DeveloperDesk
                   preview={preview}
                   pendingNotes={pendingNotes}
+                  reports={noteReports}
                   members={members}
                   books={books}
                   auditEntries={auditEntries}
@@ -1489,6 +1496,8 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
 }) {
   const bookOptions = [...new Set(books.map((book) => book.title))];
   const chapters = [...new Set(notes.map((note) => note.chapter))];
+  const isNewThisWeek = (note: Note) => !preview && note.newThisWeek === true;
+  const newThisWeekCount = notes.filter(isNewThisWeek).length;
   return <motion.div variants={itemVariants}>
     <PageHeading eyebrow="Shared learning" title="Notes library" description="Subject → book → chapter → custom topic → Google Docs." action={canSubmit ? <button className="button-primary" type="button" onClick={onOpenSubmit}>＋ Submit a note</button> : undefined} />
     <div className="notice"><strong>Link permissions:</strong> the document owner needs to grant access to intended readers. A URL alone does not guarantee that a Google Doc can be opened.</div>
@@ -1498,9 +1507,9 @@ function NotesPage({ notes, query, subjectFilter, bookFilter, chapterFilter, sav
       <select aria-label="Filter by book" value={bookFilter} onChange={(event) => onBook(event.target.value)}><option>All books</option>{bookOptions.map((book) => <option key={book}>{book}</option>)}</select>
       <select aria-label="Filter by chapter" value={chapterFilter} onChange={(event) => onChapter(event.target.value)}><option>All chapters</option>{chapters.map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
     </div>
-    <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}{preview ? " · sample" : ""}</h2><span className="chip">New this week · preview</span></div>
+    <div className="section-heading"><h2>{notes.length} approved {notes.length === 1 ? "note" : "notes"}{preview ? " · sample" : ""}</h2><span className="chip">{preview ? "Preview data · sample" : `${newThisWeekCount} new this week`}</span></div>
     <div className="card-grid">{notes.length ? notes.map((note) => <motion.article className="note-card" key={note.id} variants={itemVariants} whileHover={motionEnabled ? { y: -4, rotateX: 1.5, rotateY: -1.5 } : undefined} style={{ "--card-accent": subjectColor(note.subject) } as CSSProperties}>
-      <div className="card-meta"><span className="chip" style={{ color: subjectColor(note.subject) }}>{note.subject}</span><span className="chip">Approved</span></div>
+      <div className="card-meta"><span className="chip" style={{ color: subjectColor(note.subject) }}>{note.subject}</span><span className="chip">Approved</span>{isNewThisWeek(note) && <span className="chip">New this week</span>}</div>
       <h3>{note.topic}</h3><p>{note.book}<br />{note.chapter}</p>
       <div className="card-footer"><small>By {note.submittedBy}</small><div className="note-actions">
         {note.docsUrl ? isGoogleDocsUrl(note.docsUrl) ? <a className="button-quiet" href={note.docsUrl} target="_blank" rel="noopener noreferrer">Open Doc ↗</a> : <button type="button" onClick={onPreview}>Link unavailable</button> : <button type="button" onClick={onPreview}>Preview note</button>}
@@ -1646,8 +1655,8 @@ function LogoStage({ className = "", imageRef, reduceMotion, pageVisible }: { cl
   );
 }
 
-function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
-  preview: boolean; pendingNotes: Note[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; soundEnabled: boolean; onSoundEnabled: (value: boolean) => void; itemVariants: Variants;
+function DeveloperDesk({ preview, pendingNotes, reports, members, books, auditEntries, onReview, onPermission, onInvite, onEditBook, onAnnouncement, onExam, onSettings, reduceAnimations, onReduceAnimations, leaderboardOptIn, onLeaderboard, soundEnabled, onSoundEnabled, itemVariants }: {
+  preview: boolean; pendingNotes: Note[]; reports: NoteReport[]; members: Member[]; books: Book[]; auditEntries: string[]; onReview: (id: string, status: NoteStatus) => void; onPermission: (id: string, role?: Exclude<Role, "developer">) => void; onInvite: () => void; onEditBook: (id: string) => void; onAnnouncement: () => void; onExam: () => void; onSettings: () => void; reduceAnimations: boolean; onReduceAnimations: (value: boolean) => void; leaderboardOptIn: boolean; onLeaderboard: (value: boolean) => void; soundEnabled: boolean; onSoundEnabled: (value: boolean) => void; itemVariants: Variants;
 }) {
   return <motion.div variants={itemVariants}>
     <PageHeading eyebrow="Owner controls" title="Developer desk" description="Manage invitations, submission permissions, review queue, books, and course announcements." action={<button className="button-primary" type="button" onClick={onInvite}>＋ Invite a member</button>} />
@@ -1657,6 +1666,11 @@ function DeveloperDesk({ preview, pendingNotes, members, books, auditEntries, on
       <div><strong>{note.topic}</strong><small>{note.subject} · {note.book} · {note.chapter}<br />Submitted by {note.submittedBy} · {note.createdAt}</small></div>
       <div className="management-actions"><button className="button-primary" type="button" onClick={() => onReview(note.id, "approved")}>Approve</button><button className="button-danger" type="button" onClick={() => onReview(note.id, "rejected")}>Reject</button></div>
     </motion.article>) : <EmptyState>No notes are waiting for review.</EmptyState>}</div>
+    <SectionHeading title="Broken-link reports" detail="Reader reports create developer-only review items." />
+    <div className="management-list">{reports.length ? reports.map((report) => <article className="management-card" key={report.id}>
+      <div><strong>Note {report.note_id.slice(0, 8)} · link report</strong><small>{report.reason}<br />Received {new Date(report.created_at).toLocaleString()}</small></div>
+      <span className="chip">{report.status}</span>
+    </article>) : <EmptyState>No broken-link reports are waiting for review.</EmptyState>}</div>
     <SectionHeading title="Members & contribution access" detail="Only the developer grants submission permission. Submission never grants publish access." action={<button className="button-secondary" type="button" onClick={onInvite}>Invite a member</button>} />
     <div className="management-list">{members.map((member) => <div className="management-card" key={member.id}>
       <div className="person-row"><span className="avatar">{initials(member.name)}</span><div><strong>{member.name}</strong><small>{member.email} · {member.role} · {member.status}</small></div></div>

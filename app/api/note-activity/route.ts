@@ -31,15 +31,18 @@ export async function POST(request: NextRequest) {
   const session = await getActiveProfile();
   if (!session) return errorResponse("Authentication required.", 401);
   const body: unknown = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") return errorResponse("Invalid note activity.");
+  if (!body || typeof body !== "object" || Array.isArray(body)) return errorResponse("Invalid note activity.");
   const input = body as Record<string, unknown>;
   const noteId = typeof input.noteId === "string" ? input.noteId : "";
   const action = input.action;
-  const enabled = input.enabled === true;
   if (!uuidPattern.test(noteId)) return errorResponse("Invalid note identifier.");
+  if (Object.keys(input).some((key) => !["action", "noteId", "enabled"].includes(key))) {
+    return errorResponse("Unsupported note activity fields.");
+  }
 
   if (action === "bookmark") {
-    const result = enabled
+    if (typeof input.enabled !== "boolean") return errorResponse("Choose whether to save or remove the bookmark.");
+    const result = input.enabled
       ? await session.client.from("bookmarks").upsert({ user_id: session.profile.id, note_id: noteId }, { onConflict: "user_id,note_id" })
       : await session.client.from("bookmarks").delete().eq("user_id", session.profile.id).eq("note_id", noteId);
     if (result.error) {
@@ -47,17 +50,17 @@ export async function POST(request: NextRequest) {
       return errorResponse("The bookmark could not be updated.", 502);
     }
   } else if (action === "helpful") {
-    if (enabled) {
-      const { error } = await session.client.from("note_reactions").upsert(
-        { user_id: session.profile.id, note_id: noteId, helpful: true },
-        { onConflict: "user_id,note_id" },
-      );
-      if (error) {
-        console.error("Could not record note reaction.", error);
-        return errorResponse("The reaction could not be recorded.", 502);
-      }
+    if (input.enabled !== true) return errorResponse("A helpful reaction can only be added once.");
+    const { error } = await session.client.from("note_reactions").upsert(
+      { user_id: session.profile.id, note_id: noteId, helpful: true },
+      { onConflict: "user_id,note_id" },
+    );
+    if (error) {
+      console.error("Could not record note reaction.", error);
+      return errorResponse("The reaction could not be recorded.", 502);
     }
   } else if (action === "report") {
+    if (Object.hasOwn(input, "enabled")) return errorResponse("Broken-link reports do not accept an enabled flag.");
     const { error } = await session.client.from("note_reports").insert({
       user_id: session.profile.id,
       note_id: noteId,

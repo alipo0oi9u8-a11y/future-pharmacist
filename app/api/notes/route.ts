@@ -27,7 +27,13 @@ export async function GET() {
     console.error("Could not load study data.", notesResult.error ?? subjectsResult.error ?? booksResult.error);
     return errorResponse("Study data is temporarily unavailable.", 502);
   }
-  return NextResponse.json({ notes: notesResult.data, subjects: subjectsResult.data, books: booksResult.data });
+  const now = Date.now();
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const notes = notesResult.data.map((note) => {
+    const createdAt = Date.parse(note.created_at);
+    return { ...note, new_this_week: Number.isFinite(createdAt) && createdAt >= weekAgo && createdAt <= now };
+  });
+  return NextResponse.json({ notes, subjects: subjectsResult.data, books: booksResult.data });
 }
 
 export async function POST(request: NextRequest) {
